@@ -1,6 +1,7 @@
 # backend/tests/test_music_library_scope_and_stats.py
-"""Three derivations the UI reads and nothing executed: the genre list, the
-per-storage counts, and the playhead a reconnecting client is handed.
+"""Four derivations the UI reads and nothing executed: the genre list, the
+per-storage counts, the album count on a storage button, and the playhead a
+reconnecting client is handed.
 
 Each had 0 % of its body run, and each is mocked away by the test of its own
 consumer — the route test replaces `source.genres_in_scope`, the storages test
@@ -13,19 +14,26 @@ What breaks when they fail:
   which answers with every genre in the catalog whatever it is asked. Left
   underived, the genre list offers a genre that belongs to another storage
   space and the drill-down — which *is* scoped — opens empty.
-* **`NavidromeLibraryService.stats`** is the count on every storage button, and
-  it is an agreement between two files that nothing pins: it keys by the
+* **`NavidromeLibraryService.stats`** is the track and missing-file count on
+  every storage button, and its album count where no merged one is known; it
+  is an agreement between two files that nothing pins: it keys by the
   library's ``path`` and `storages_with_stats` looks it up by ``mountpoint``.
   Measured on this appliance 2026-08-25, the two agree
   (``/media/milo/nas-leo-d7992dfe``, 2403 songs / 155 albums / 16 missing).
   It is also the only honest progress figure while a scan runs: Subsonic's
   global count does not move until a scan ends.
+* **`merged_album_count`** puts the grid's album count on the button, a
+  multi-disc set counted once. Left to Navidrome's native count, the button
+  named more albums than the grid it opens lists; read by a walk in the push,
+  it delayed every storage change behind a whole-catalog read.
 * **`refresh_metadata`** is the public ABC method `state.refresh_active_view`
   reaches (through `refresh_when_idle`) on every WebSocket handshake and
   GET /api/audio/state. It re-reads the live playhead so a reconnecting browser
   tab, or Milo-Mac, is handed an anchor where playback actually is rather than
   where the last reading left it.
 """
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, Mock
 
@@ -265,6 +273,225 @@ class TestPerStorageCounts:
         service._get_admin = AsyncMock(return_value=None)
 
         assert await service.stats() == {}
+
+
+class TestTheStorageButtonCountsAsTheGrid:
+    """A storage button's album count is the album grid's, multi-disc sets merged.
+
+    Navidrome's native ``totalAlbums`` counts every disc of a split
+    "… CD 1"/"CD 2" set; the grid pages over ``merge_albums``. Measured
+    2026-11-25 on a 10 069-track iPod: the button said 764, the grid listed 753.
+    Navidrome is the outside world here — its native library records and
+    getAlbumList2 — and the grid is read through its own route. The storages
+    push is the hook the share service is handed: it is how a count that moved
+    off the push reaches the screen.
+    """
+
+    LIBRARY = 6
+    UUID = "AAAA-1111"
+    CATALOG = [
+        {"id": "b1", "name": "The Complete Sessions CD 1", "artistId": "ar-1"},
+        {"id": "b2", "name": "The Complete Sessions CD 2", "artistId": "ar-1"},
+        {"id": "kb", "name": "Kind of Blue", "artistId": "ar-1"},
+    ]
+
+    @pytest.fixture
+    def navidrome(self, source):
+        """Navidrome counting one album per disc natively, and answering the
+        alphabetical walk with ``self.catalog`` — or holding a page until
+        ``self.gate`` opens, or failing it while ``self.unanswered``."""
+        self.catalog = list(self.CATALOG)
+        self.gate = None
+        self.unanswered = False
+
+        async def page(scope, list_type, size, offset, **_):
+            # Read as the request arrives: a page held at the gate answers
+            # with the catalog as it was when it was asked for.
+            rows = list(self.catalog[offset:offset + size]) if scope == [self.LIBRARY] else []
+            if self.gate is not None:
+                await self.gate.wait()
+            return None if self.unanswered else rows
+
+        client = Mock()
+        client.get_album_list = AsyncMock(side_effect=page)
+        source.get_navidrome_client = AsyncMock(return_value=client)
+        source.broadcast_storages = AsyncMock()
+        admin = Mock()
+        admin.list_libraries = AsyncMock(return_value=[
+            {"id": self.LIBRARY, "name": "iPod", "path": KEY,
+             "totalSongs": 30, "totalAlbums": len(self.CATALOG),
+             "totalMissingFiles": 0},
+        ])
+        shares = source.shares
+        shares._libraries._get_admin = AsyncMock(return_value=admin)
+        shares._libraries.library_id = Mock(side_effect={KEY: self.LIBRARY}.get)
+        shares._data.list_shares = AsyncMock(return_value=[])
+        shares._data.get_known_usb = AsyncMock(return_value={
+            self.UUID: {"name": "iPod", "label": "IPOD", "mountpoint": KEY},
+        })
+        shares._storage.get_mounted_share_ids = Mock(return_value=set())
+        self.plug(source)
+        return client
+
+    def plug(self, source):
+        source.shares._storage.get_usb_mounts = Mock(return_value=[
+            {"uuid": self.UUID, "label": "IPOD", "mountpoint": KEY},
+        ])
+
+    def unplug(self, source):
+        source.shares._storage.get_usb_mounts = Mock(return_value=[])
+
+    async def grid(self, source):
+        """The alphabetical grid of this storage space, as the route serves it."""
+        from backend.sources.music_library.routes import get_albums
+
+        page = await get_albums(
+            source=source, type="alphabeticalByName", size=500, offset=0,
+            genre=None, from_year=None, to_year=None, library_id=self.LIBRARY,
+        )
+        return page["albums"]
+
+    async def button(self, source):
+        (entry,) = await source.shares.storages_with_stats()
+        assert entry["library_id"] == self.LIBRARY
+        return entry["album_count"]
+
+    async def test_a_box_set_counts_once_on_the_button_as_on_the_grid(
+        self, source, navidrome
+    ):
+        """Counted off the push, then pushed again: the screen ends on the
+        grid's count without a refetch."""
+        await self.button(source)
+        await settle()
+
+        source.broadcast_storages.assert_awaited_once()
+        assert await self.button(source) == len(await self.grid(source))
+        # Non-trivial: Navidrome's own count is one album per disc.
+        assert len(await self.grid(source)) == len(self.CATALOG) - 1
+
+    async def test_the_storage_list_never_waits_on_a_catalog_walk(self, source, navidrome):
+        """Every mount and unmount drops the album cache and then pushes the
+        storages, whose session end (a pulled key's) and post-mount scan wait
+        for that push: a walk in it put a whole-catalog read of every other
+        mounted space in front of both."""
+        self.gate = asyncio.Event()
+
+        listing = asyncio.ensure_future(source.shares.storages_with_stats())
+        await settle()
+
+        assert listing.done()
+        (entry,) = listing.result()
+        assert entry["album_count"] == len(self.CATALOG)  # Navidrome's, for now
+        self.gate.set()
+        await settle()
+        source.broadcast_storages.assert_awaited_once()
+        assert await self.button(source) == len(self.CATALOG) - 1
+
+    async def test_callers_of_one_scope_share_one_walk(self, source, navidrome):
+        """The library view asks for the storages and the grid together: both
+        missing the cache paged the same catalog twice, against a Navidrome
+        busiest during the first index."""
+        self.gate = asyncio.Event()
+
+        listing = asyncio.ensure_future(self.button(source))  # starts the count's walk
+        grid = asyncio.ensure_future(self.grid(source))
+        await settle()
+        self.gate.set()
+        await settle()
+
+        assert listing.done() and len(grid.result()) == len(self.CATALOG) - 1
+        # One page holds the catalog, so one walk is one call.
+        assert navidrome.get_album_list.await_count == 1
+
+    async def test_a_walk_begun_before_a_change_is_not_the_count_after_it(
+        self, source, navidrome
+    ):
+        """A mount mid-walk drops the cache; the walk under way read the catalog
+        from before it and must not become the count, nor the grid's cache."""
+        self.gate = asyncio.Event()
+        listing = asyncio.ensure_future(self.button(source))
+        await settle()
+
+        self.catalog.append({"id": "nw", "name": "New Arrival", "artistId": "ar-2"})
+        source.invalidate_album_cache()  # what _sync_libraries does on a mount
+        self.gate.set()
+        await settle()
+
+        assert listing.done()
+        assert await self.button(source) == len(self.catalog) - 1
+
+    async def test_a_cached_catalog_is_counted_without_walking_it_again(
+        self, source, navidrome
+    ):
+        """Every scan poll pushes the storages: a walk per push is a walk every
+        3 s, to a Navidrome busy indexing."""
+        expected = len(await self.grid(source))
+        walks = navidrome.get_album_list.await_count
+
+        assert await self.button(source) == expected
+        await settle()
+        assert navidrome.get_album_list.await_count == walks
+        source.broadcast_storages.assert_not_awaited()
+
+    async def test_an_unplugged_key_keeps_the_count_it_last_had(self, source, navidrome):
+        """Navidrome keeps an unplugged key's index, and its button its count —
+        the merged one, from memory, with no walk for a space that is away."""
+        expected = len(await self.grid(source))
+        source.invalidate_album_cache()  # a scan, or the unplug itself
+        self.unplug(source)
+        walks = navidrome.get_album_list.await_count
+
+        assert await self.button(source) == expected
+        await settle()
+        assert navidrome.get_album_list.await_count == walks
+
+    async def test_a_key_never_walked_keeps_navidromes_count_while_away(
+        self, source, navidrome
+    ):
+        """No merged count known and nothing to read it from: Navidrome's own
+        figure rather than a walk of a space nobody can open."""
+        self.unplug(source)
+
+        assert await self.button(source) == len(self.CATALOG)
+        await settle()
+        navidrome.get_album_list.assert_not_awaited()
+
+    async def test_a_mounted_key_whose_walk_fails_shows_navidromes_fresh_count(
+        self, source, navidrome
+    ):
+        """A merged count from before a rescan is not the catalog's: once the
+        walk that would replace it stops short, Navidrome's fresh count is the
+        better answer for a space that is mounted."""
+        await self.grid(source)
+        source.invalidate_album_cache()  # a rescan
+        self.unanswered = True
+
+        await self.button(source)
+        await settle()
+
+        source.broadcast_storages.assert_awaited_once()
+        assert await self.button(source) == len(self.CATALOG)
+
+    async def test_a_refused_credential_drops_the_client_and_is_said_once(
+        self, source, navidrome, caplog
+    ):
+        """The count is decoration: the storage list, which the whole library
+        view is built from, must not fail for it — nor log on every push of a
+        scan. The client goes, as at the routes, so the next read takes a
+        rotated credential."""
+        from backend.sources.music_library.navidrome_client import NavidromeAuthError
+
+        navidrome.get_album_list.side_effect = NavidromeAuthError("rejected")
+        held = Mock(close=AsyncMock())
+        source._navidrome = held
+
+        for _ in range(2):
+            assert await self.button(source) == len(self.CATALOG)
+            await settle()
+
+        held.close.assert_awaited_once()
+        refusals = [r for r in caplog.records if "left as Navidrome counts it" in r.getMessage()]
+        assert len(refusals) == 1
 
 
 class TestOnlyOurOwnLibrariesAreManaged:

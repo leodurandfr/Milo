@@ -39,7 +39,7 @@ def _service(shares, usb, library_ids, known=None):
     from backend.sources.music_library.shares import NetworkShareService
 
     service = NetworkShareService(
-        AsyncMock(return_value=None), lambda: None, AsyncMock()
+        AsyncMock(return_value=None), lambda: None, AsyncMock(), lambda *_: None,
     )
     if known is None:
         known = {

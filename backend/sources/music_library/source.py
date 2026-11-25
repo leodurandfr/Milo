@@ -40,7 +40,7 @@ import asyncio
 import random
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from pydantic import BaseModel
 
@@ -71,7 +71,11 @@ from backend.sources.music_library.models import (
     SeekParams,
 )
 from backend.sources.music_library.artist_images import ArtistImageService
-from backend.sources.music_library.navidrome_client import NavidromeClient, NavidromeUnreachable
+from backend.sources.music_library.navidrome_client import (
+    NavidromeAuthError,
+    NavidromeClient,
+    NavidromeUnreachable,
+)
 from backend.sources.music_library.shares import NetworkShareService
 
 # Within this many seconds of a track, `prev` restarts the current track;
@@ -229,6 +233,7 @@ class MusicLibrarySource(MpvAudioSource):
             self.get_navidrome_client,
             self.invalidate_album_cache,
             self.broadcast_storages,
+            self.merged_album_count,
         )
         # Starts and stops of the catalog (see set_catalog_running), in order.
         self._catalog_bg = BackgroundTaskSet(self._logger, "source.music_library.catalog")
@@ -258,6 +263,26 @@ class MusicLibrarySource(MpvAudioSource):
         # album cache above: the artist grid and the search results both read it
         # (see get_artist_index).
         self._artist_cache: Dict[Tuple[int, ...], Tuple[float, List[Dict[str, Any]]]] = {}
+        # Library id -> how many albums its own merged catalog held, the last
+        # time one was walked to the end. Outlives the cache above on purpose:
+        # it is what a storage button says while its space is away (see
+        # merged_album_count).
+        self._merged_album_counts: Dict[int, int] = {}
+        # The album walk in flight per browse scope, which every caller of that
+        # scope awaits rather than starting its own (see get_merged_albums), and
+        # the cache generation invalidate_album_cache moves: a walk begun before
+        # an invalidation never writes its catalog over it.
+        self._album_walks: Dict[Tuple[int, ...], asyncio.Task] = {}
+        self._album_generation = 0
+        # The walks, and the storage counts refreshed off the storages push (see
+        # merged_album_count) — not the source's `_bg`, which every stop drains:
+        # the catalog is read while the library plays nothing.
+        self._walk_bg = BackgroundTaskSet(self._logger, "source.music_library.album-walk")
+        # Library ids whose count is being refreshed, so a burst of pushes asks
+        # for one walk; and whether the last refresh met a refused credential,
+        # so an outage is logged once, not on every push of a scan.
+        self._count_refreshes: Set[int] = set()
+        self._count_refused = False
         # playlist id → its first track's album id, for placing a playlist Milō
         # did not create in a storage space (see playlists_in_scope).
         self._playlist_album: Dict[str, Optional[str]] = {}
@@ -416,40 +441,143 @@ class MusicLibrarySource(MpvAudioSource):
         grid, the playlist pane) keeps the partial answer.
         """
         key = tuple(sorted(scope))
-        now = asyncio.get_event_loop().time()
         cached = self._album_cache.get(key)
-        if cached is not None and now - cached[0] < ALBUM_CACHE_TTL_S:
+        if cached is not None and asyncio.get_event_loop().time() - cached[0] < ALBUM_CACHE_TTL_S:
             return cached[1]
-        client = await self.get_navidrome_client()
-        if client is None:
-            return []
-        albums: List[Dict[str, Any]] = []
-        offset = 0
-        complete = True
-        while True:
-            page = await client.get_album_list(
-                scope,
-                list_type="alphabeticalByName",
-                size=_ALBUM_PAGE,
-                offset=offset,
-            )
-            if page is None:
-                if strict:
-                    raise NavidromeUnreachable("getAlbumList2")
-                # A failed request ends the walk short of the catalog. This call
-                # still serves what it has — a partial grid beats none — but the
-                # result is not the catalog and must not become the answer for
-                # the whole TTL.
-                complete = False
-                break
-            albums.extend(page)
-            if len(page) < _ALBUM_PAGE:
-                break
-            offset += _ALBUM_PAGE
-        merged = merge_albums(albums)
-        if albums and complete:
-            self._album_cache[key] = (now, merged)
+        # One walk per scope at a time: the library view asks for the storages
+        # (whose counts read this catalog) and the grid together, and both
+        # missing the cache used to page the same catalog twice.
+        walk = self._album_walks.get(key)
+        if walk is None:
+            walk = self._walk_bg.spawn(self._walk_albums(key, list(scope)), label="walk")
+            self._album_walks[key] = walk
+        # Shielded: a caller that stops waiting (a closed page) leaves the walk
+        # to the others awaiting it.
+        merged, complete, error = await asyncio.shield(walk)
+        if error is not None:
+            raise error
+        if strict and not complete:
+            raise NavidromeUnreachable("getAlbumList2")
         return merged
+
+    async def _walk_albums(
+        self, key: Tuple[int, ...], scope: List[int]
+    ) -> Tuple[List[Dict[str, Any]], bool, Optional[Exception]]:
+        """Page one scope's catalog to the end: (merged, complete, error).
+
+        Run once for every caller of :meth:`get_merged_albums` awaiting that
+        scope, so what the client raised is handed back to each of them rather
+        than logged as a failed task.
+        """
+        generation = self._album_generation
+        started = asyncio.get_event_loop().time()
+        try:
+            client = await self.get_navidrome_client()
+            if client is None:
+                return [], True, None
+            albums: List[Dict[str, Any]] = []
+            offset = 0
+            complete = True
+            while True:
+                page = await client.get_album_list(
+                    scope,
+                    list_type="alphabeticalByName",
+                    size=_ALBUM_PAGE,
+                    offset=offset,
+                )
+                if page is None:
+                    # A failed request ends the walk short of the catalog. A
+                    # listing still serves what it has — a partial grid beats
+                    # none — but the result is not the catalog and must not
+                    # become the answer for the whole TTL.
+                    complete = False
+                    break
+                albums.extend(page)
+                if len(page) < _ALBUM_PAGE:
+                    break
+                offset += _ALBUM_PAGE
+            merged = merge_albums(albums)
+            if albums and complete and generation == self._album_generation:
+                self._album_cache[key] = (started, merged)
+                if len(key) == 1:
+                    self._merged_album_counts[key[0]] = len(merged)
+            return merged, complete, None
+        except Exception as exc:
+            return [], False, exc
+        finally:
+            if self._album_walks.get(key) is asyncio.current_task():
+                del self._album_walks[key]
+
+    def merged_album_count(self, library_id: int, mounted: bool) -> Optional[int]:
+        """How many albums the grid lists for one storage space, or None if unknown.
+
+        The storage button's count, handed to the share service. Navidrome's
+        native ``totalAlbums`` counts each disc of a split "… CD 1"/"CD 2" set,
+        so left as it answers, the button said 764 over a grid of 753 on a
+        10 069-track iPod (measured 2026-11-25). The grid pages over this
+        storage space's merged catalog, so the button reads the same one.
+
+        Never walks: it is read by every storages push, and the pushes that
+        change the mount set come right after the album cache was dropped — a
+        walk here put a whole-catalog read of every other mounted space in front
+        of the storage change itself (the end of a session whose key was pulled)
+        and of the scan a mount asks for. So a mounted space answers its cached
+        catalog when there is one, else the last count known while one walk is
+        started off the push, which pushes the storages again once the count
+        has moved (:meth:`_refresh_album_count`). A space that is away is never
+        walked: its last count known. None leaves Navidrome's own count.
+        """
+        if mounted:
+            cached = self._album_cache.get((library_id,))
+            if cached is not None and asyncio.get_event_loop().time() - cached[0] < ALBUM_CACHE_TTL_S:
+                return len(cached[1])
+            answered = self._merged_album_counts.get(library_id)
+            if library_id not in self._count_refreshes:
+                self._count_refreshes.add(library_id)
+                self._walk_bg.spawn(
+                    self._refresh_album_count(library_id, answered), label="album-count"
+                )
+            return answered
+        return self._merged_album_counts.get(library_id)
+
+    async def _refresh_album_count(self, library_id: int, answered: Optional[int]) -> None:
+        """Walk one mounted space's catalog, and push the storages again if its
+        count is no longer the one ``answered``.
+
+        A walk that ran to the end records the count. One that stopped short —
+        a page unanswered, nothing indexed yet — leaves no merged count to stand
+        by, so the last one is forgotten and Navidrome's fresh count is shown
+        rather than one from before any number of rescans. A credential
+        Navidrome refused drops the client, as the routes do, so the next read
+        rebuilds it from a possibly-rotated cred file; a count is decoration,
+        so it is said once per outage and changes nothing else.
+        """
+        try:
+            while True:
+                generation = self._album_generation
+                try:
+                    await self.get_merged_albums([library_id])
+                except NavidromeAuthError as exc:
+                    await self.invalidate_navidrome_client()
+                    if not self._count_refused:
+                        self._count_refused = True
+                        self._logger.warning(
+                            "Album count of library %s left as Navidrome counts it: %s",
+                            library_id, exc,
+                        )
+                    return
+                # The catalog changed under the walk, which therefore cached
+                # nothing: the change's own push found this refresh running.
+                if generation == self._album_generation:
+                    break
+            if (library_id,) in self._album_cache:
+                self._count_refused = False
+            else:
+                self._merged_album_counts.pop(library_id, None)
+        finally:
+            self._count_refreshes.discard(library_id)
+        if self._merged_album_counts.get(library_id) != answered:
+            await self.broadcast_storages()
 
     async def genres_in_scope(self, scope: List[int]) -> List[Dict[str, Any]]:
         """The genres present in a browse scope, in the getGenres shape.
@@ -596,8 +724,12 @@ class MusicLibrarySource(MpvAudioSource):
         storage space", and a rescan is exactly when that changes. So does the
         client's cover memo — a rescan is when an album gains or loses its art,
         and the one moment an artist Deezer had no photo for is worth re-asking.
+        A walk in flight is let go: it read the catalog from before the change,
+        so it caches nothing, and the next caller starts a walk of its own.
         """
         self._album_cache.clear()
+        self._album_generation += 1
+        self._album_walks.clear()
         self._artist_cache.clear()
         self._playlist_album.clear()
         self._artist_images.invalidate()
@@ -738,6 +870,7 @@ class MusicLibrarySource(MpvAudioSource):
 
     async def shutdown(self) -> None:
         await self._catalog_bg.cancel_all()
+        await self._walk_bg.cancel_all()
         await super().shutdown()
 
     def _resume_content(self, session: "LibrarySession"):

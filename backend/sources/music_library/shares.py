@@ -132,6 +132,7 @@ class NetworkShareService:
         navidrome_provider: NavidromeProvider,
         on_catalog_changed: Callable[[], None],
         on_storages_changed: Callable[[], Awaitable[None]],
+        merged_album_count: Callable[[int, bool], Optional[int]],
     ) -> None:
         self._logger = logging.getLogger("source.music_library.shares")
         self._data = MusicLibraryDataService()
@@ -150,6 +151,11 @@ class NetworkShareService:
         # reconcile could not — so there is one push per change, not one per
         # caller.
         self._on_storages_changed = on_storages_changed
+        # A storage space's album count as its grid lists it, multi-disc sets
+        # merged: (library id, mounted) → count, or None to keep Navidrome's
+        # own. Answered from what the source holds, never by a walk — see
+        # storages_with_stats.
+        self._merged_album_count = merged_album_count
         # Last scan state seen by the watcher, so it only pushes on a change.
         # Optimistic until the watcher's first poll, which runs immediately:
         # claiming "still starting" on a healthy unit would be a worse lie than
@@ -460,6 +466,17 @@ class NetworkShareService:
         placement) want the cheap list. This is what the ``/storages`` route and
         the ``storages_changed`` broadcast both return, so a page load and a
         hotplug push agree field for field.
+
+        ``album_count`` is the one count not taken as Navidrome states it: its
+        native ``totalAlbums`` counts every disc of a multi-disc set, the grid
+        lists the set once, and the button names what the grid holds. So each
+        space with albums is counted by the source (``merged_album_count``) —
+        a mounted one from its merged catalog, one that is away from the last
+        count known — and keeps Navidrome's figure only where none is known.
+        That count never walks the catalog: this list runs on every storage
+        change, right after the catalog cache was dropped, and a mounted space
+        whose catalog is not cached is counted off the push, which comes again
+        once the count has moved.
         """
         entries = await self.storages()
         stats = await self._libraries.stats()
@@ -468,6 +485,12 @@ class NetworkShareService:
                 stats.get(entry["mountpoint"], {"track_count": 0, "album_count": 0,
                                                 "missing_count": 0})
             )
+        for entry in entries:
+            if entry["library_id"] is None or not entry["album_count"]:
+                continue
+            count = self._merged_album_count(entry["library_id"], entry["mounted"])
+            if count is not None:
+                entry["album_count"] = count
         return entries
 
     def scan_state(self) -> Dict[str, Any]:

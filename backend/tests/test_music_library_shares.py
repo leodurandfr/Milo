@@ -31,7 +31,9 @@ STATVFS = "backend.sources.music_library.shares.os.statvfs"
 @pytest.fixture
 def shares():
     """A share service whose collaborators are stubbed at their own boundary."""
-    service = NetworkShareService(AsyncMock(return_value=None), Mock(), AsyncMock())
+    service = NetworkShareService(
+        AsyncMock(return_value=None), Mock(), AsyncMock(), Mock(return_value=None)
+    )
     service._data.initialize = AsyncMock()
     service._data.get_known_usb = AsyncMock(return_value={})
     service._storage.initialize = AsyncMock(return_value=True)
@@ -1024,7 +1026,9 @@ class TestScanChannel:
         client = AsyncMock()
         client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
         client.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
-        service = NetworkShareService(AsyncMock(return_value=client), Mock(), AsyncMock())
+        service = NetworkShareService(
+            AsyncMock(return_value=client), Mock(), AsyncMock(), Mock(return_value=None)
+        )
         try:
             await service._storage.request_scan()
 

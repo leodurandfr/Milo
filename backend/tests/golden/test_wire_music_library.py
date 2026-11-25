@@ -67,7 +67,10 @@ class FakeNavidrome:
 class FakeShares:
     """The storage layer (shares + USB watcher): one USB key, plugged in."""
 
-    def __init__(self, navidrome_provider, on_catalog_changed, on_storages_changed):
+    def __init__(
+        self, navidrome_provider, on_catalog_changed, on_storages_changed,
+        merged_album_count,
+    ):
         self.on_storages_changed = on_storages_changed
         self.entries = [dict(USB_KEY)]
         self.scan_requests = 0

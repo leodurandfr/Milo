@@ -283,6 +283,9 @@ MAILBOX = ("Result",) + CALLBACK_POSTS
 NOT_CALLBACKS = {
     "get_navidrome_client": "NetworkShareService's catalog client, a provider that owns no source state",
     "invalidate_album_cache": "NetworkShareService's album-cache reset, which clears no source state",
+    "merged_album_count": "NetworkShareService's storage album count: reads the album cache and "
+                          "its count memo, and spawns the walk that refills them, none of which "
+                          "holds a session or a view",
     "_initialize_once": "Music Library's boot init, run as a task under asyncio.shield so a "
                         "selection's timeout cannot cut it: the startup path, not a callback",
 }
@@ -291,6 +294,8 @@ NOT_CALLBACKS = {
 STATELESS_TASKS = {
     "_apply_catalog": "Music Library starts or stops Navidrome under its own lock and tells "
                       "the share service; no session or view is read or written",
+    "_walk_albums": "Music Library's catalog walk, shared by every caller of one browse scope: "
+                    "it fills the album cache and its count memo, no session or view",
     "_send_scrobble": "Music Library's scrobble, one HTTP call to Navidrome whose failure "
                       "costs a log line",
     "_harvest": "Spotify keeps the signed-in account's credentials in the profiles store; "
