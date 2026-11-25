@@ -898,10 +898,19 @@ of the payload on offer is taken in when no wait recorded it), and
 `GET /api/programs/satellites` lists an offline satellite that holds one, so its
 row still says why and offers the retry. A push that reached no satellite
 records nothing. A pushed tree that ships no guard (a release from before it,
-pushed back) is applied without a trial, since nothing in it would close one. Two app pushes never run at once, and a
-Milō update's fleet push stops at the first satellite that rolls back or does not
-return: the rest are held back on the app they run, and a satellite that already
-went back from this payload is not pushed again.
+pushed back) is applied without a trial, since nothing in it would close one. Two app pushes never run at once.
+One rule (`SatelliteUpdateService._holds_back_fleet`) says when a satellite's
+failure holds the others back from a payload, read alike by a Milō update's
+fleet push and by the admission's catch-up below: its recorded verdict for the
+server's payload is `rolled_back` or `did_not_return`, whether it came from this
+push or was recorded before — and only for a satellite this server still pushes,
+since one removed from the registry or answering another server can never settle
+on the payload here. The rest keep the app they run, and a satellite that already
+went back from this payload is not pushed again. The hold lifts once that
+satellite settles on the payload (its record goes when its status says so, or
+when a push of it commits), and the online satellites it held back are handed
+to the catch-up then, since one that stays online is never admitted again. A
+satellite that answers another server is pushed by neither path.
 
 **A satellite left behind is caught up at its admission.** One unplugged while a
 Milō update pushed the fleet keeps the old app, and the server then sends it
@@ -910,13 +919,19 @@ after the secret's hand-over, `SatelliteUpdateService.catch_up_app` asks whether
 it is owed the push: it answers, its payload differs from the server's, no trial
 is open on it, it does not answer another server, no failure recorded for it
 says it `refused` this payload, it did not record a rollback of it itself, and no
-other satellite went back from it (the fleet push's halt). `refused` is kept with
+other satellite's failure holds it back (the rule above). `refused` is kept with
 each failure: an error the satellite answered about the payload, or a rollback —
 never a 409 (busy) or a 403 (the secret of a server it does not follow, which
 the next hand-over replaces), and never a push that reached nothing or saw no
 end. The push runs through the programs router, under the claim the row's button
 takes, and announced the same way; a Milō update or another app push in flight
-holds it back until that claim ends, then the question is asked again. It runs
+holds it back until that claim ends, then the question is asked again. A push
+the satellite refuses because dpkg stays held past its own wait (its 409 starts
+with `dpkg is busy`, words frozen since a satellite on the previous release
+writes them) installed nothing, and nothing else pushes a satellite that stays
+online, so it is tried again `ADMISSION_DPKG_RETRY_S` later, at most
+`ADMISSION_DPKG_RETRIES` times, each try asking the question again; a 409 for an
+open trial is not retried, and a re-admission during the wait adds nothing. It runs
 in the satellite update service's own task set, cancelled only by the backend's
 teardown, never by a multiroom toggle.
 

@@ -68,6 +68,18 @@ APP_UNTOUCHED_POLLS = 3
 
 APP_FAILURES_KEY = "updates.satellite_app_failures"
 
+# A satellite answers a push 409 when dpkg stays held past its own wait
+# (unattended-upgrades runs on every unit, and a speaker plugged back in after
+# days runs it at once), with a refusal that starts with this — the satellite's
+# `AppUpdateService._dpkg_busy`, read across releases, so held equal to it by
+# test_satellite_updates.py. Nothing installed and nothing restarted, and
+# nothing else pushes a satellite that stays online: its admission push is
+# tried again this much later, at most this many times, each time through the
+# same check of whether one is still owed.
+DPKG_BUSY_REFUSAL = "dpkg is busy"
+ADMISSION_DPKG_RETRY_S = 600
+ADMISSION_DPKG_RETRIES = 3
+
 # How long a snapclient or CamillaDSP install may run on a satellite once it
 # answered `started`. The satellite's own steps are bounded: its download by
 # DOWNLOAD_TIMEOUT_S (services/release_download.py), snapclient's `apt-get
@@ -186,6 +198,9 @@ class SatelliteUpdateService:
         # multiroom toggle cancels — a push takes minutes, and one cut there
         # left nothing to say how it ended.
         self._bg = BackgroundTaskSet(self.logger, "satellite_updates")
+        # The satellites whose admission push waits to be tried again because
+        # dpkg was busy on them (`_catch_up`).
+        self._dpkg_waits: set[str] = set()
 
     async def cleanup(self) -> None:
         """Cancel the admission pushes still waiting or running; a push cut
@@ -634,41 +649,152 @@ class SatelliteUpdateService:
         programs router's runner, under the same claim as its row's button and
         announced the same way, so a Milō update or another app push in flight
         holds it back until it ends, and the row shows it running and how it
-        ended.
+        ended. One refused because dpkg was busy on the satellite is tried
+        again a few times, minutes apart (`_catch_up`).
 
         Called by the admission once the client counts as online, after the
         hand-over of the secret the push carries. Returns at once: the push
         runs in this service's own task set, which only the backend's teardown
         cancels. Never raises.
         """
-        if self._admission_push_runner is None:
+        self._spawn_catch_up(mac_id)
+
+    def _spawn_catch_up(self, mac_id: str) -> None:
+        """`catch_up_app`'s spawn, for a caller that cannot await."""
+        if self._admission_push_runner is None or mac_id in self._dpkg_waits:
+            # A re-admission during a dpkg retry's wait adds nothing: the
+            # retry asks again whether a push is owed when it ends.
             return
         self._bg.spawn(self._catch_up(mac_id), label=f"catch_up_app_{mac_id}")
 
     async def _catch_up(self, mac_id: str) -> None:
-        try:
-            await self._admission_push_runner(mac_id, lambda: self._catch_up_owed(mac_id))
-        except Exception as e:
-            self.logger.error(
-                f"Satellite {mac_id}: the client app catch-up at its admission failed: "
-                f"{_describe_error(e)}"
+        """The admission's push, and its retries while the satellite answers
+        that dpkg is busy: a refusal that installed nothing, with nothing else
+        to push a satellite that stays online. Every try asks `_catch_up_owed`
+        again, through the runner, so a satellite that went away, took the
+        payload meanwhile or opened a trial is left alone."""
+        for attempt in range(ADMISSION_DPKG_RETRIES + 1):
+            decided: List[bool] = []
+
+            async def owed() -> bool:
+                decided.append(await self._catch_up_owed(mac_id))
+                return decided[-1]
+
+            try:
+                await self._admission_push_runner(mac_id, owed)
+            except Exception as e:
+                self.logger.error(
+                    f"Satellite {mac_id}: the client app catch-up at its admission failed: "
+                    f"{_describe_error(e)}"
+                )
+                return
+            # The runner pushed iff the last check it made said so.
+            if not decided or not decided[-1] or not await self._refused_for_dpkg(mac_id):
+                return
+            if attempt == ADMISSION_DPKG_RETRIES:
+                self.logger.warning(
+                    f"Satellite {mac_id}: dpkg was still busy after {attempt + 1} client app "
+                    "pushes at its admission; its own row offers the push"
+                )
+                return
+            self.logger.info(
+                f"Satellite {mac_id}: dpkg is busy on it, its client app push is tried "
+                f"again in {ADMISSION_DPKG_RETRY_S // 60} min"
             )
+            self._dpkg_waits.add(mac_id)
+            try:
+                await asyncio.sleep(ADMISSION_DPKG_RETRY_S)
+            finally:
+                self._dpkg_waits.discard(mac_id)
+
+    async def _refused_for_dpkg(self, mac_id: str) -> bool:
+        """Whether the push just recorded for this satellite was refused because
+        dpkg was busy on it — a 409 that installed nothing, unlike the 409 of a
+        trial still open, which a retry would only meet again."""
+        record = (await self.get_app_update_failures()).get(mac_id)
+        return (
+            isinstance(record, dict) and record.get("verdict") == "rejected"
+            and str(record.get("detail") or "").startswith(f"HTTP 409 - {DPKG_BUSY_REFUSAL}")
+        )
+
+    def _pushable(self, mac_id: str, client: Any, when: str) -> bool:
+        """Whether this registry client is one this server pushes its client
+        app to, by the fleet push and by the admission alike: a satellite, not
+        the server's own client, and one that holds this server's secret. A
+        satellite that pinned another server's refuses every push (403) until
+        it is unplugged and plugged back in, and Settings › Multiroom already
+        names it, so it is no failure to record or report."""
+        if client is None or client.is_local:
+            return False
+        if client.other_server is True:
+            self.logger.info(
+                f"{client.name or mac_id}: answers another server, so no client app push {when}"
+            )
+            return False
+        return True
+
+    @staticmethod
+    def _follows_this_server(client: Any) -> bool:
+        """`_pushable`'s answer, with nothing logged."""
+        return client is not None and not client.is_local and client.other_server is not True
+
+    @staticmethod
+    def _holds_back_fleet(record: Any, payload: str) -> bool:
+        """Whether one satellite's recorded failure holds every other satellite
+        back from `payload`: it took that payload and went back from it, or did
+        not come back from it. A release that breaks one room breaks them all,
+        and a unit that does not come back is the worse sign — its network or
+        its boot broken, which its guard does not always undo. A `rejected`
+        push restarted nothing and holds nothing.
+
+        The hold lifts by itself: the record goes once that satellite settles
+        on the payload (`_reconcile_app_failures`, or a push of it that
+        commits), and the satellites it held back are pushed then
+        (`_release_held`); the next payload starts clean. Read by the fleet
+        push and the admission's catch-up alike."""
+        return (
+            isinstance(record, dict) and record.get("payload") == payload
+            and record.get("verdict") in ("rolled_back", "did_not_return")
+        )
+
+    def _fleet_holder(
+        self, failures: Dict[str, Any], payload: str, mac_id: str,
+    ) -> Optional[tuple]:
+        """`(mac, record)` of another satellite whose failure holds `mac_id`
+        back from `payload`, or None.
+
+        Only a satellite this server pushes holds the others: one removed from
+        the registry, or one that answers another server, can never come back
+        on this payload here, so its record would hold the fleet for good."""
+        clients = self.client_registry_service.get_all_clients()
+        return next(
+            ((mac, record) for mac, record in failures.items()
+             if mac != mac_id and self._holds_back_fleet(record, payload)
+             and self._follows_this_server(clients.get(mac))),
+            None,
+        )
+
+    def _release_held(self, lifted: List[str]) -> None:
+        """Push the satellites a lifted hold kept back. A satellite that stays
+        online is admitted once, so nothing else would push it the app it was
+        held back from: each other online one is handed to the admission's
+        catch-up, which asks again whether a push is owed and waits for any
+        claim in flight."""
+        for mac, client in self.client_registry_service.get_all_clients().items():
+            if mac not in lifted and client.online and self._follows_this_server(client):
+                self._spawn_catch_up(mac)
 
     async def _catch_up_owed(self, mac_id: str) -> bool:
         """Whether an admitted satellite is owed a push of the client app: it
         answers, its payload differs from this server's, no trial is open on it,
         it holds this server's secret, it refused this payload neither to a
         push the server recorded nor by a rollback of its own, and no other
-        satellite went back from it (the fleet push's halt)."""
+        satellite's failure holds the fleet back from it (`_holds_back_fleet`,
+        the fleet push's halt)."""
         client = self.client_registry_service.get_all_clients().get(mac_id)
-        if client is None or client.is_local or not client.ip:
+        if not self._pushable(mac_id, client, "at its admission") or not client.ip:
             return False
         name = client.name or mac_id
-        if client.other_server is True:
-            self.logger.info(
-                f"{name}: answers another server, so no client app push at its admission"
-            )
-            return False
         payload = await self.get_client_payload_version()
         if not payload:
             self.logger.error(
@@ -677,19 +803,24 @@ class SatelliteUpdateService:
             )
             return False
         probe = await self._check_satellite_api(client.ip)
-        if not probe.get("online") or probe.get("app_payload") == payload:
-            return False
-        if probe.get("app_trial"):
-            self.logger.info(f"{name}: on trial of a client app, not pushed {payload} at its admission")
+        if not probe.get("online"):
             return False
         satellite = {
             "mac_id": mac_id,
             "online": True,
             "app_payload": probe.get("app_payload"),
-            "app_trial": False,
+            "app_trial": bool(probe.get("app_trial")),
             "app_last_update": probe.get("app_last_update"),
         }
+        # Read before the answer below: a satellite back on the payload it did
+        # not come back from drops its own failure here, and with it the hold
+        # that failure puts on the others.
         failures = await self._reconcile_app_failures([satellite], payload)
+        if probe.get("app_payload") == payload:
+            return False
+        if probe.get("app_trial"):
+            self.logger.info(f"{name}: on trial of a client app, not pushed {payload} at its admission")
+            return False
         failure = failures.get(mac_id)
         refused = (
             isinstance(failure, dict) and failure.get("payload") == payload and failure.get("refused")
@@ -700,21 +831,17 @@ class SatelliteUpdateService:
                 "admission. Its own row offers the retry."
             )
             return False
-        # The fleet push's halt, kept: a satellite that took this payload and
-        # went back from it holds the others back with their own app. Only a
-        # rollback: a push that saw no end (a unit unplugged under it) says
-        # nothing about the payload.
-        went_back = next(
-            (mac for mac, record in failures.items()
-             if mac != mac_id and isinstance(record, dict)
-             and record.get("payload") == payload and record.get("verdict") == "rolled_back"),
-            None,
-        )
-        if went_back is not None:
-            other = self.client_registry_service.get_all_clients().get(went_back)
+        # The fleet push's halt, by the same rule: another satellite that went
+        # back from this payload, or did not come back from it, holds this one
+        # back with its own app.
+        holder = self._fleet_holder(failures, payload, mac_id)
+        if holder is not None:
+            other = self.client_registry_service.get_all_clients().get(holder[0])
+            how = ("went back from it" if holder[1].get("verdict") == "rolled_back"
+                   else "did not come back from it")
             self.logger.info(
                 f"{name}: client app {payload} held back at its admission, "
-                f"{(other.name if other else None) or went_back} went back from it. "
+                f"{(other.name if other else None) or holder[0]} {how}. "
                 "Its own row offers the push."
             )
             return False
@@ -977,10 +1104,11 @@ class SatelliteUpdateService:
     async def _record_app_outcome(self, mac_id: str, result: Dict[str, Any]) -> None:
         async with self._failures_lock:
             failures = await self.get_app_update_failures()
+            lifted = False
             if result["verdict"] == "committed":
                 if mac_id not in failures:
                     return
-                del failures[mac_id]
+                lifted = self._holds_back_fleet(failures.pop(mac_id), result.get("payload"))
             else:
                 failures[mac_id] = {
                     "payload": result.get("payload"),
@@ -994,6 +1122,8 @@ class SatelliteUpdateService:
                     f"Satellite {mac_id}: the app push's {result['verdict']} could not be "
                     "recorded; its row will not show it"
                 )
+        if lifted:
+            self._release_held([mac_id])
 
     async def _reconcile_app_failures(
         self, satellites: List[Dict[str, Any]], server_payload: Optional[str]
@@ -1005,17 +1135,21 @@ class SatelliteUpdateService:
         committed, a 409 recorded while an earlier trial ran. And a rollback a
         satellite recorded itself, of the payload this server offers, is taken
         in where the server holds nothing about that payload — the wait that
-        would have recorded it was cut, by a restart of this backend.
+        would have recorded it was cut, by a restart of this backend — or holds
+        only that it did not come back from it: it came back, the old app.
         """
         async with self._failures_lock:
             failures = await self.get_app_update_failures()
             changed = False
+            lifted: List[str] = []
             for satellite in satellites:
                 mac = satellite["mac_id"]
                 failure = failures.get(mac)
                 if failure and _settled_on(failure.get("payload"), satellite):
                     del failures[mac]
                     changed = True
+                    if server_payload and self._holds_back_fleet(failure, server_payload):
+                        lifted.append(mac)
                     continue
                 last = satellite.get("app_last_update")
                 if (
@@ -1023,7 +1157,8 @@ class SatelliteUpdateService:
                     and last.get("payload") == server_payload
                     and last.get("outcome") == "rolled_back"
                     and satellite.get("app_payload") != server_payload
-                    and (failure is None or failure.get("payload") != server_payload)
+                    and (failure is None or failure.get("payload") != server_payload
+                         or failure.get("verdict") == "did_not_return")
                 ):
                     at = last.get("at")
                     failures[mac] = {
@@ -1036,7 +1171,9 @@ class SatelliteUpdateService:
                     changed = True
             if changed and not await self.settings_service.set_setting(APP_FAILURES_KEY, failures):
                 self.logger.error("The satellites' app push failures could not be updated")
-            return failures
+        if lifted:
+            self._release_held(lifted)
+        return failures
 
     @staticmethod
     def _rolled_back_before(payload: str, failure: Optional[dict], last_update: Optional[dict]) -> bool:
@@ -1102,11 +1239,14 @@ class SatelliteUpdateService:
         counting the satellites this call means to push; a satellite held back
         by an earlier one's failure is never announced.
 
-        One satellite at a time, and the first that rolls back or does not come
-        back stops the push: a release that breaks one room breaks them all, and
-        the rest are held back with their own app. A `rejected` push restarted
-        nothing and stops nothing. A satellite that already went back from this
-        payload is not pushed again — its own row offers the retry.
+        One satellite at a time, and a satellite whose failure holds the fleet
+        back (`_holds_back_fleet`: it went back from this payload or did not
+        come back from it, in this push or recorded before) stops the push: the
+        rest are held back with their own app, as the admission's catch-up
+        holds them. A `rejected` push restarted nothing and stops nothing. A
+        satellite that already went back from this payload is not pushed
+        again — its own row offers the retry —, and one that answers another
+        server is not pushed at all (`_pushable`).
 
         Never raises. It runs past the point where the app can still be rolled
         back, and an unplugged satellite is a fact to report, not a failed Milō
@@ -1129,7 +1269,7 @@ class SatelliteUpdateService:
             remote = {
                 mac: client
                 for mac, client in self.client_registry_service.get_all_clients().items()
-                if not client.is_local
+                if self._pushable(mac, client, "with the Milo update")
             }
             if not remote:
                 return left_behind
@@ -1137,8 +1277,10 @@ class SatelliteUpdateService:
             reachable = {
                 s["mac_id"]: s for s in await self.discover_satellites(include_offline=True)
             }
-            failures = await self._reconcile_app_failures(list(reachable.values()), payload)
-            halted_by: Optional[str] = None
+            # The record as this push moves it: each verdict below replaces
+            # its satellite's entry, so a failure here holds the rest back by
+            # the same rule as one recorded before.
+            failures = dict(await self._reconcile_app_failures(list(reachable.values()), payload))
             total = sum(
                 1 for mac in remote
                 if mac in reachable
@@ -1174,10 +1316,13 @@ class SatelliteUpdateService:
                     )
                     continue
 
-                if halted_by:
-                    left_behind.append(f"{name}: held back, {halted_by} did not take {payload}")
+                holder = self._fleet_holder(failures, payload, mac)
+                if holder is not None:
+                    other = self.client_registry_service.get_all_clients().get(holder[0])
+                    held_by = (other.name if other else None) or holder[0]
+                    left_behind.append(f"{name}: held back, {held_by} did not take {payload}")
                     self.logger.error(
-                        f"{name}: client app {payload} held back, {halted_by} did not take it"
+                        f"{name}: client app {payload} held back, {held_by} did not take it"
                     )
                     continue
 
@@ -1189,6 +1334,10 @@ class SatelliteUpdateService:
                     except Exception as e:
                         self.logger.error(f"{name}: client app push not announced: {e}")
                 result = await self.update_satellite_app(mac)
+                if result.get("verdict") == "committed":
+                    failures.pop(mac, None)
+                else:
+                    failures[mac] = {"payload": payload, "verdict": result.get("verdict")}
                 if not result.get("success"):
                     left_behind.append(name)
                     self.logger.error(
@@ -1196,8 +1345,6 @@ class SatelliteUpdateService:
                         f"{result.get('error', 'unknown error')}). "
                         "The Milo update continues; the satellite keeps the app it runs."
                     )
-                    if result.get("verdict") in ("rolled_back", "did_not_return"):
-                        halted_by = name
 
         except Exception as e:
             self.logger.error(f"Pushing the client app to the fleet failed: {e}")

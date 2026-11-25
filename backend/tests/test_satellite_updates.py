@@ -1148,9 +1148,10 @@ class TestFleetPush:
     """
 
     @staticmethod
-    def _client(ip, name, is_local=False):
+    def _client(ip, name, is_local=False, other_server=False):
         # `name` is set after construction: passing it to Mock() names the mock.
-        client = Mock(is_local=is_local, ip=ip, online=True, host="milo-client")
+        client = Mock(is_local=is_local, ip=ip, online=True, host="milo-client",
+                      other_server=other_server)
         client.name = name
         return client
 
@@ -1327,6 +1328,30 @@ class TestFleetPush:
 
         assert fleet.pushed == ["dc:a6:32:7e:d3:43"]
         assert left_behind == []
+
+    async def test_a_satellite_that_answers_another_server_is_not_pushed_nor_left_behind(
+            self, fleet, caplog):
+        """It refuses every push with a 403 until it is unplugged and plugged
+        back in, and Settings › Multiroom already names it. Pushed anyway, each
+        Milō update built and sent it a tarball for nothing and wrote an ERROR,
+        a failure on its row and "left behind" in the update's journal, while
+        its admission skipped it with an info line — two rules for one unit."""
+        fleet.client_registry_service.get_all_clients.return_value = {
+            "dc:a6:32:7e:d3:43": self._client("192.168.1.153", "Canapé", other_server=True),
+            "d8:3a:dd:68:e7:e4": self._client("192.168.1.60", "Bureau"),
+        }
+
+        with caplog.at_level(logging.INFO, logger="backend.core.updates.satellite"):
+            left_behind = await self._push_to(fleet, {
+                "192.168.1.153": self._status("0ae3872", "v0.1.0"),
+                "192.168.1.60": self._status("0ae3872", "v0.1.0"),
+            })
+
+        assert fleet.pushed == ["d8:3a:dd:68:e7:e4"]
+        assert left_behind == []
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert "dc:a6:32:7e:d3:43" not in await fleet.get_app_update_failures()
+        assert any("Canapé: answers another server" in r.getMessage() for r in caplog.records)
 
     async def test_the_local_client_is_not_a_satellite(self, fleet):
         """The server is a client of its own snapserver. Pushing the tarball to
@@ -2305,7 +2330,11 @@ class TestAdmissionCatchUp:
         canape = Mock(is_local=False, ip="192.168.1.153", online=True, host="milo-client",
                       other_server=other_server)
         canape.name = "Canapé"
-        registry.get_all_clients = Mock(return_value={CANAPE: canape})
+        # Salon is the other satellite a failure on record may belong to.
+        salon = Mock(is_local=False, ip="192.168.1.154", online=True, host="milo-client",
+                     other_server=False)
+        salon.name = "Salon"
+        registry.get_all_clients = Mock(return_value={CANAPE: canape, SALON: salon})
         service = SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
                                          settings_service=_MemorySettings(failures))
         service.owed = []
@@ -2394,8 +2423,329 @@ class TestAdmissionCatchUp:
                             "at": 1, "refused": True}}
         assert await self._admit(self._service(failures), _app(OLD_PAYLOAD, 1000)) is False
 
-    async def test_another_satellite_that_never_came_back_holds_nothing_back(self):
-        """A unit unplugged under its push says nothing about the payload."""
+    async def test_another_satellite_that_did_not_come_back_from_the_payload_holds_it_back(self):
+        """The fleet push holds the rest back on it, and so does the admission:
+        a unit that does not come back is the worse sign (its network or its
+        boot broken), and pushed at its reconnect the next room is cut for
+        it."""
         failures = {SALON: {"payload": SERVER_PAYLOAD, "verdict": "did_not_return", "detail": "gone",
                             "at": 1, "refused": False}}
+        assert await self._admit(self._service(failures), _app(OLD_PAYLOAD, 1000)) is False
+
+    async def test_a_rejected_push_to_another_satellite_holds_nothing_back(self):
+        """It restarted nothing, so it says nothing about the payload."""
+        failures = {SALON: {"payload": SERVER_PAYLOAD, "verdict": "rejected", "detail": "HTTP 409",
+                            "at": 1, "refused": False}}
         assert await self._admit(self._service(failures), _app(OLD_PAYLOAD, 1000)) is True
+
+
+CANAPE_IP, SALON_IP = "192.168.1.153", "192.168.1.154"
+
+
+def _two_satellites(failures, *, salon=True, salon_other_server=False):
+    """Canapé and Salon in the registry (Salon left out with `salon=False`),
+    the record holding `failures`, the admission's runner recording what it
+    was told and the fleet's push recording who it reached (each push
+    committing)."""
+    registry = Mock()
+    clients = {}
+    for mac, ip, name in ((CANAPE, CANAPE_IP, "Canapé"), (SALON, SALON_IP, "Salon")):
+        if mac == SALON and not salon:
+            continue
+        client = Mock(is_local=False, ip=ip, online=True, host="milo-client",
+                      other_server=mac == SALON and salon_other_server)
+        client.name = name
+        clients[mac] = client
+    registry.get_all_clients = Mock(return_value=clients)
+    service = SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
+                                     settings_service=_MemorySettings(failures))
+    service.owed = []
+    service.pushed = []
+
+    async def runner(mac_id, owed):
+        service.owed.append((mac_id, await owed()))
+
+    async def push(mac_id):
+        service.pushed.append(mac_id)
+        return {"success": True, "verdict": "committed"}
+
+    service.set_admission_push_runner(runner)
+    service.update_satellite_app = push
+    return service
+
+
+def _status_of(app):
+    return {"snapclient": {"version": "0.35.0", "running": True}, "app": app}
+
+
+async def _admit_one(service, mac_id, statuses):
+    """`statuses`: {ip: app block}; an IP left out does not answer."""
+    with patch("backend.core.updates.satellite.aiohttp.ClientSession",
+               return_value=_FakeFleet({ip: _status_of(app) for ip, app in statuses.items()})), \
+            patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", _fake_git()):
+        before = len(service.owed)
+        await service.catch_up_app(mac_id)
+        for task in [t for t in asyncio.all_tasks() if "catch_up_app" in t.get_name()]:
+            await asyncio.wait_for(task, timeout=5)
+    assert len(service.owed) == before + 1, "the runner was not handed the decision"
+    return service.owed[-1][1]
+
+
+async def _admit_and_drain(service, mac_id, statuses):
+    """`_admit_one`, waiting as well for every admission push it set off; the
+    runner's decisions, in order, are left in `service.owed`."""
+    with patch("backend.core.updates.satellite.aiohttp.ClientSession",
+               return_value=_FakeFleet({ip: _status_of(app) for ip, app in statuses.items()})), \
+            patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", _fake_git()):
+        await service.catch_up_app(mac_id)
+        for _ in range(10):
+            pending = [t for t in asyncio.all_tasks()
+                       if "catch_up_app" in t.get_name() and not t.done()]
+            if not pending:
+                break
+            await asyncio.wait_for(asyncio.gather(*pending), timeout=5)
+
+
+class TestOneHoldForTheFleetAndTheAdmission:
+    """The fleet push and a satellite's admission decide whether one
+    satellite's failure holds the others back from a payload by one rule
+    (`_holds_back_fleet`), read on one record. They disagreed: the fleet held
+    the rest back on a satellite that did not come back, and the admission
+    pushed the next one to reconnect anyway, restarting its room."""
+
+    @pytest.mark.parametrize("verdict, holds", [
+        ("rolled_back", True), ("did_not_return", True), ("rejected", False),
+    ])
+    async def test_the_fleet_and_the_admission_decide_alike_on_the_same_record(
+            self, verdict, holds):
+        failures = {SALON: {"payload": SERVER_PAYLOAD, "verdict": verdict, "detail": "x",
+                            "at": 1, "refused": verdict == "rolled_back"}}
+        behind = _app(OLD_PAYLOAD, 1000)
+
+        fleet = _two_satellites(failures)
+        with patch("backend.core.updates.satellite.aiohttp.ClientSession",
+                   return_value=_FakeFleet({CANAPE_IP: _status_of(behind)})), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", _fake_git()):
+            await fleet.push_client_app_to_fleet()
+        admission = _two_satellites(failures)
+        owed = await _admit_one(admission, CANAPE, {CANAPE_IP: behind})
+
+        assert (CANAPE in fleet.pushed) is (not holds)
+        assert owed is (not holds)
+
+    async def test_the_hold_lifts_once_the_satellite_comes_back_on_the_payload(self):
+        """Salon's push saw no end; Canapé is held back. Salon's own admission,
+        settled on the payload, drops its failure — and with it the hold, and
+        Canapé is pushed then. It stays online, so it is never admitted again:
+        left to its next reconnect, it kept the old app for weeks, silently
+        ignoring keys this server sends."""
+        service = _two_satellites({SALON: {"payload": SERVER_PAYLOAD, "verdict": "did_not_return",
+                                           "detail": "gone", "at": 1, "refused": False}})
+        behind = _app(OLD_PAYLOAD, 1000)
+        settled = _app(SERVER_PAYLOAD, 3000, last=_record(SERVER_PAYLOAD, "committed", 3125))
+
+        assert await _admit_one(service, CANAPE, {CANAPE_IP: behind}) is False
+        service.owed.clear()
+        await _admit_and_drain(service, SALON, {SALON_IP: settled, CANAPE_IP: behind})
+
+        assert SALON not in await service.get_app_update_failures()
+        assert service.owed == [(SALON, False), (CANAPE, True)]
+
+    @pytest.mark.parametrize("salon, salon_other_server", [(False, False), (True, True)],
+                             ids=["removed from the registry", "answers another server"])
+    async def test_a_satellite_that_cannot_come_back_here_holds_nothing_back(
+            self, salon, salon_other_server):
+        """Its record would never go: a speaker deleted from the registry, or
+        one that now follows another server, never settles on this payload
+        here, and a unit unplugged under the fleet push ends did_not_return —
+        so every other speaker was held back at every admission and every
+        Milō update, for good, by a row nothing shows."""
+        failures = {SALON: {"payload": SERVER_PAYLOAD, "verdict": "did_not_return",
+                            "detail": "gone", "at": 1, "refused": False}}
+        behind = _app(OLD_PAYLOAD, 1000)
+
+        fleet = _two_satellites(failures, salon=salon, salon_other_server=salon_other_server)
+        with patch("backend.core.updates.satellite.aiohttp.ClientSession",
+                   return_value=_FakeFleet({CANAPE_IP: _status_of(behind)})), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", _fake_git()):
+            left_behind = await fleet.push_client_app_to_fleet()
+        admission = _two_satellites(failures, salon=salon, salon_other_server=salon_other_server)
+
+        assert fleet.pushed == [CANAPE]
+        assert not [line for line in left_behind if "held back" in line]
+        assert await _admit_one(admission, CANAPE, {CANAPE_IP: behind}) is True
+
+    async def test_a_satellite_that_did_not_come_back_and_went_back_is_recorded_rolled_back(self):
+        """What it says itself once it answers again: it came back, on the old
+        app, from a payload whose push the server saw no end of."""
+        service = _two_satellites({SALON: {"payload": SERVER_PAYLOAD, "verdict": "did_not_return",
+                                           "detail": "gone", "at": 1, "refused": False}})
+        went_back = _app(OLD_PAYLOAD, 2100, last=_record(SERVER_PAYLOAD, "rolled_back", 2100, "boom"))
+
+        assert await _admit_one(service, SALON, {SALON_IP: went_back}) is False
+        record = (await service.get_app_update_failures())[SALON]
+        assert record["verdict"] == "rolled_back"
+        assert record["refused"] is True
+
+
+class TestAdmissionDpkgRetry:
+    """A satellite plugged back in after days runs unattended-upgrades at once,
+    and its admission push meets dpkg held past the satellite's wait: a 409
+    that installed nothing. Nothing else pushes a satellite that stays online,
+    so it kept the old app — its EQ or its level silently ignoring the keys
+    this server sends — until the owner pressed its row. The admission tries
+    again, minutes later, a bounded number of times; a 409 for a trial still
+    open is not retried, since a retry would only meet it again."""
+
+    DPKG_BUSY = ("dpkg is busy (held by unattended-upgr after 60 s): nothing was "
+                 "installed; push again once it is done")
+
+    @pytest.fixture
+    def client_tree(self, tmp_path):
+        tree = tmp_path / "milo-client"
+        (tree / "app").mkdir(parents=True)
+        (tree / "app" / "main.py").write_text("app\n")
+        return tree
+
+    class _Satellite:
+        """Answers each POST with the next refusal (409, its `detail`), then
+        takes the push: from there /status reports the payload committed."""
+
+        def __init__(self, refusals, log):
+            self.refusals = list(refusals)
+            self.log = log
+            self.app = _app(OLD_PAYLOAD, 1000)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def get(self, url, **kwargs):
+            return _FakeResponse(200, {"app": self.app, "snapclient": {"version": "0.35.0"}})
+
+        def post(self, url, **kwargs):
+            self.log.append("post")
+            if self.refusals:
+                return _FakeResponse(409, json.dumps({"detail": self.refusals.pop(0)}))
+            self.app = _app(SERVER_PAYLOAD, 3000, last=_record(SERVER_PAYLOAD, "committed", 3125))
+            return _FakeResponse(200, {"status": "success"})
+
+    async def _admit(self, satellite_service, client_tree, refusals):
+        """The admission's push run to its end, every sleep recorded in the
+        order it came: the retry's delay among the pushes, the waiter's polls
+        left out."""
+        from backend.core.updates.satellite import ADMISSION_DPKG_RETRY_S
+
+        log = []
+        service = satellite_service
+
+        async def runner(mac_id, owed):
+            # The programs router's runner, less its claim: ask, then push.
+            if await owed():
+                await service.update_satellite_app(mac_id)
+
+        async def sleep(delay, *args, **kwargs):
+            if delay == ADMISSION_DPKG_RETRY_S:
+                log.append("retry delay")
+
+        service.set_admission_push_runner(runner)
+        canape = service.client_registry_service.get_all_clients()[CANAPE]
+        canape.other_server = False
+        with _patch_satellite(self._Satellite(refusals, log)), \
+                patch("asyncio.sleep", new=sleep), \
+                patch("backend.core.updates.satellite.MILO_CLIENT_DIR", client_tree), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", _fake_git()):
+            await service.catch_up_app(CANAPE)
+            for task in [t for t in asyncio.all_tasks() if "catch_up_app" in t.get_name()]:
+                await asyncio.wait_for(task, timeout=5)
+        return log
+
+    async def test_a_dpkg_busy_refusal_is_pushed_again_after_the_delay(
+            self, satellite_service, client_tree):
+        log = await self._admit(satellite_service, client_tree, [self.DPKG_BUSY])
+
+        assert log == ["post", "retry delay", "post"]
+        assert CANAPE not in await satellite_service.get_app_update_failures()
+
+    async def test_the_retries_are_bounded(self, satellite_service, client_tree):
+        from backend.core.updates.satellite import ADMISSION_DPKG_RETRIES
+
+        log = await self._admit(satellite_service, client_tree, [self.DPKG_BUSY] * 10)
+
+        assert log.count("post") == ADMISSION_DPKG_RETRIES + 1
+        assert log.count("retry delay") == ADMISSION_DPKG_RETRIES
+        assert log[-1] == "post"
+
+    @pytest.mark.parametrize("refusal", [
+        f"An update to {OLD_PAYLOAD} is still on trial",
+        "Update already in progress",
+    ])
+    async def test_a_busy_satellite_for_another_reason_is_not_pushed_again(
+            self, satellite_service, client_tree, refusal):
+        log = await self._admit(satellite_service, client_tree, [refusal])
+
+        assert log == ["post"]
+
+    async def test_a_readmission_during_the_wait_starts_no_second_retry(
+            self, satellite_service, client_tree):
+        """A speaker that reconnects while its retry waits was admitted again,
+        and its own catch-up ran a second loop of pushes and retries beside the
+        first: twice the refusals for one dpkg lock."""
+        started = []
+        service = satellite_service
+        original = service.catch_up_app
+
+        async def readmit_during_wait():
+            await original(CANAPE)
+            started.append(len([t for t in asyncio.all_tasks()
+                                if "catch_up_app" in t.get_name() and not t.done()]))
+
+        from backend.core.updates.satellite import ADMISSION_DPKG_RETRY_S
+        real_sleep = asyncio.sleep
+
+        async def sleep(delay, *args, **kwargs):
+            if delay == ADMISSION_DPKG_RETRY_S:
+                await readmit_during_wait()
+            await real_sleep(0)
+
+        async def runner(mac_id, owed):
+            if await owed():
+                await service.update_satellite_app(mac_id)
+
+        service.set_admission_push_runner(runner)
+        service.client_registry_service.get_all_clients()[CANAPE].other_server = False
+        log = []
+        with _patch_satellite(self._Satellite([self.DPKG_BUSY], log)), \
+                patch("asyncio.sleep", new=sleep), \
+                patch("backend.core.updates.satellite.MILO_CLIENT_DIR", client_tree), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", _fake_git()):
+            await original(CANAPE)
+            for _ in range(10):
+                pending = [t for t in asyncio.all_tasks()
+                           if "catch_up_app" in t.get_name() and not t.done()]
+                if not pending:
+                    break
+                await asyncio.wait_for(asyncio.gather(*pending), timeout=5)
+
+        assert started == [1]
+        assert log == ["post", "post"]
+
+    # What a satellite on the previous app writes, frozen: this server reads it
+    # off a 409 that release sent.
+    FROZEN_DPKG_BUSY_REFUSAL = "dpkg is busy"
+
+    def test_the_refusal_it_reads_is_frozen(self):
+        """The refusal crosses releases: this server reads the one a satellite
+        on the previous app writes. Reworded on both sides in one commit, the
+        two still agree and every satellite on the previous app has its dpkg
+        refusal read as one not worth a retry, with no error anywhere — so the
+        words are pinned here, not only compared across the tree."""
+        from backend.core.updates.satellite import DPKG_BUSY_REFUSAL
+
+        assert DPKG_BUSY_REFUSAL == self.FROZEN_DPKG_BUSY_REFUSAL
+        source = (Path(__file__).resolve().parents[2]
+                  / "milo-client" / "app" / "services" / "app_update.py").read_text()
+        assert "def _dpkg_busy(" in source, "the satellite's refusal moved; read it again"
+        assert f'refusal = f"{self.FROZEN_DPKG_BUSY_REFUSAL} (' in source
