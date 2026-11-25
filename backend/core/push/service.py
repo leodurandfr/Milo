@@ -442,6 +442,7 @@ class PushService:
 
         async with self._session_lock:
             self._adopt_reported_session()
+            self._let_go_if_reported_gone()
 
             if self._has_active_source(state):
                 if self._session_id is None and self._device_can_be_started(device_id):
@@ -451,6 +452,36 @@ class PushService:
             if device_id not in self._session_devices():
                 return
             await self._consider_ending(state)
+
+    def _let_go_if_reported_gone(self) -> None:
+        """Let go of the session held when the devices reported it gone and no
+        token is left for it anywhere.
+
+        The report has just retired its token (`drop_sessions_absent_from`).
+        Held on, the session waited for the knock (`_knock`): a cycle, which
+        steady playback does not make, then a re-announcement spaced by
+        `START_REPORT_GRACE_S`. Meanwhile the app, seeing no card, waited six
+        seconds of playback before opening its own. Measured 2026-11-25 at
+        15:06:27, after a reinstall: "reports 0 live session(s); dropped 1
+        stale session token(s)", no `start`, and the card only came at
+        15:06:37 from the app, opened three times by then.
+        Let go here, the `start` goes out on this same report, while the app
+        is still open to claim the screen for it.
+
+        Kept while any device still holds a token for it: an iPad on the same
+        session still shows it. And only for a token a report took away, never
+        for one that has not arrived yet: that is the rival session of
+        2026-09-19 (`_update_session`).
+        """
+        held = self._session_id
+        if held is None or self._registry.tokens_for_session(held):
+            return
+        if not self._registry.was_reported_gone(held):
+            return
+        logger.info(
+            f"Now Playing session {held} reported gone by the device that held it — let go"
+        )
+        self._forget_session()
 
     def _device_can_be_started(self, device_id: str) -> bool:
         """Does the reporting device hold a token a `start` can be sent to?

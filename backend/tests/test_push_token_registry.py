@@ -392,6 +392,30 @@ class TestLiveSessionReports:
         assert await registry.drop_sessions_absent_from("phone-1", []) == 1
         assert registry.token_for_session("ghost") is None
 
+    async def test_a_retired_session_is_known_as_reported_gone(self, registry):
+        """So the push service can tell it from a token not arrived yet: it lets
+        go of the first and waits for the second (`_let_go_if_reported_gone`)."""
+        await registry.register(
+            "tok-ghost", SESSION, ApnsEnvironment.PRODUCTION, "phone-1",
+            session_id="ghost")
+
+        await registry.drop_sessions_absent_from("phone-1", [])
+
+        assert registry.was_reported_gone("ghost")
+        assert not registry.was_reported_gone("never-held")
+
+    async def test_registering_the_session_again_takes_it_back(self, registry):
+        await registry.register(
+            "tok-ghost", SESSION, ApnsEnvironment.PRODUCTION, "phone-1",
+            session_id="ghost")
+        await registry.drop_sessions_absent_from("phone-1", [])
+
+        await registry.register(
+            "tok-back", SESSION, ApnsEnvironment.PRODUCTION, "phone-1",
+            session_id="ghost")
+
+        assert not registry.was_reported_gone("ghost")
+
     async def test_one_phone_cannot_retire_another_phones_session(self, registry):
         """A device knows its own sessions and nobody else's. Unscoped, the
         first empty report from any phone would wipe the household."""

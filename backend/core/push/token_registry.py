@@ -36,6 +36,9 @@ class PushTokenRegistry:
         self._file_lock = asyncio.Lock()
         self._tokens: Dict[str, PushToken] = {}
         self._lost_sessions: set[str] = set()
+        # Sessions a device reported it no longer holds, whose token this
+        # retired. See `was_reported_gone`.
+        self._reported_gone: set[str] = set()
         # Tokens read from the file at boot and not registered again since:
         # this process cannot vouch for them. See `registered_before_start`.
         self._from_disk: Set[str] = set()
@@ -110,6 +113,19 @@ class PushTokenRegistry:
         Only a reboot lands here, and only because the device said so.
         """
         return session_id in self._lost_sessions
+
+    def was_reported_gone(self, session_id: str) -> bool:
+        """Did a device say it no longer holds this session, and lose its
+        token for it here?
+
+        The other way a session dies under this side without an `end`: a
+        reinstall, or iOS reclaiming the card. The device's report
+        (`drop_sessions_absent_from`) retires the token; this remembers why it
+        went, so the push service can tell this silence from a token that has
+        not arrived yet, as it does for a reboot. A token registered again for
+        the session takes it back.
+        """
+        return session_id in self._reported_gone
 
     def registered_before_start(self, token: str) -> bool:
         """Was this token read from the file at boot, and not registered since?
@@ -218,6 +234,8 @@ class PushTokenRegistry:
                 del tokens[gone]
             tokens[token] = record
             self._from_disk.discard(token)
+            if session_id is not None:
+                self._reported_gone.discard(session_id)
             return True
 
         await self._mutate(apply)
@@ -273,7 +291,7 @@ class PushTokenRegistry:
                 and held.session_id not in live
             ]
             for token in doomed:
-                tokens.pop(token)
+                self._reported_gone.add(tokens.pop(token).session_id)
             dropped = len(doomed)
             return bool(doomed)
 

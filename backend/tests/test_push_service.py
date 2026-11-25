@@ -117,6 +117,8 @@ def registry():
     reg.token_for_session = lambda sid: next(iter(reg.tokens_for_session(sid)), None)
     reg.lost = set()
     reg.was_lost_to_reboot = lambda sid: sid in reg.lost
+    reg.gone = set()
+    reg.was_reported_gone = lambda sid: sid in reg.gone
 
     def _newest_session_token(exclude=()):
         """Mirrors the real rule: a session belonging to a device that no longer
@@ -1919,6 +1921,67 @@ class TestRestart:
 
         assert service._session_id is None
         assert service._idle_since == 0.0
+
+
+class TestReportedGone:
+    """A session the phone says it no longer holds — a reinstall, iOS
+    reclaiming the card — while Milō plays. Measured 2026-11-25 at 15:06:27:
+    "reports 0 live session(s); dropped 1 stale session token(s)", then no
+    `start`; the app, open in short bursts, only opened its own card at
+    15:06:37, after six seconds of playback seen."""
+
+    async def _held(self, service, registry):
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        held = service._session_id
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=held)
+        return held
+
+    async def test_the_report_that_retires_it_starts_a_new_one(
+        self, service, registry, apns
+    ):
+        """On the same report, while the app is still open to claim the screen
+        for it: not on a cycle steady playback does not make."""
+        held = await self._held(service, registry)
+        apns.send.reset_mock()
+        del registry.held["sess"]           # what `drop_sessions_absent_from` does
+        registry.gone.add(held)
+
+        await service.align_session_to_playback("phone-1")
+
+        assert sent_events(apns) == ["start"]
+        assert service._session_id not in (None, held)
+
+    async def test_a_session_another_device_still_holds_is_kept(
+        self, service, registry, apns
+    ):
+        """The iPad on the same session still shows it."""
+        held = await self._held(service, registry)
+        registry.held["sess-ipad"] = tok(
+            PushTokenKind.SESSION, "sess-ipad", session_id=held, device_id="ipad-1")
+        apns.send.reset_mock()
+        del registry.held["sess"]
+        registry.gone.add(held)
+
+        await service.align_session_to_playback("phone-1")
+
+        assert service._session_id == held
+        assert "start" not in sent_events(apns)
+
+    async def test_a_token_not_arrived_yet_is_not_a_session_gone(
+        self, service, registry, apns
+    ):
+        """An empty report right after a `start`, before its token lands, took
+        nothing away: letting go then is the rival session of 2026-09-19."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        started = service._session_id
+        apns.send.reset_mock()
+
+        await service.align_session_to_playback("phone-1")
+
+        assert service._session_id == started
+        assert "start" not in sent_events(apns)
 
 
 class TestDeviceReboot:
