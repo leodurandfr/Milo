@@ -580,8 +580,8 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - Service: milo-qobuz.service (qobuz-proxy sidecar, backend-managed)
 - API: port 8689 on every interface — the phone reaches it over the LAN (`/api/status` polled by the backend; OAuth on `/auth/*`), behind the launcher's copy of the request origin gate (see Security)
 - Audio output: ALSA (milo_qobuz)
-- Visible name: "Milo" (ASCII — the Qobuz iOS app silently aborts the Connect
-  handshake on a non-ASCII device name; Milō's own UI still shows "Qobuz")
+- Visible name: "Milō" (the speaker's id becomes "mil", which is why the backend
+  matches it by its audio device; Milō's own UI shows "Qobuz")
 - Data: `/var/lib/milo/qobuz/` (venv + `config.yaml` + OAuth `credentials.json`)
 
 ### 9. Music Library (Navidrome + mpv)
@@ -716,7 +716,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - Controller socket: `/run/milo/tidal-controller.sock`
 - Audio output: ALSA (milo_tidal)
 - Visible name: "Milō" — the macron survives the mDNS TXT record and the apps
-  render it (unlike Qobuz, which needs ASCII)
+  render it
 
 ## Lyrics (LRCLIB)
 

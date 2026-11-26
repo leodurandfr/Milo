@@ -93,11 +93,12 @@ server:
 logging:
   level: info
 speakers:
-  # name is ASCII on purpose — the Qobuz iOS app's Connect handshake silently
-  # aborts on a non-ASCII device name (tested: "Milō" → the app spins and reverts,
-  # never POSTs /streamcore/connect-to-qconnect; "Milo" → connects and plays).
-  # Milō's own UI shows "Qobuz", so this only affects the Qobuz app's picker label.
-  - name: Milo
+  # The name the Qobuz app's picker shows. qobuz-proxy derives the speaker's id
+  # from it ("Milō" -> "mil"), so the backend finds the speaker by audio_device.
+  # It was "Milo" until 2026-11-26: on 2026-07-17 the Qobuz iOS app spun and
+  # reverted on "Milō" and never POSTed /streamcore/connect-to-qconnect;
+  # retested on 1.7.8, it connects and plays.
+  - name: Milō
     backend: local
     max_quality: 27        # 5=MP3 6=CD 7=HiRes96 27=HiRes192 (capped to device support)
     device_type: streamer  # the icon the Qobuz app draws for this output (upstream's default: speaker)

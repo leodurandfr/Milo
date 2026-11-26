@@ -610,9 +610,11 @@ is driven entirely by an external app:
   itself, which raised a Connect speaker from a settings screen and left it
   advertising until the next boot. Reading the account and logging out stay
   available from any source: both go through the credentials cache, not `:8689`.
-- **ASCII device name.** `device.name` must be ASCII (`"Milo"`, not `"Milō"`) —
-  the Qobuz iOS app silently aborts the Connect handshake on a non-ASCII name.
-  Milō's own UI still shows the `audioSources.qobuz` label ("Qobuz").
+- **Device name.** The Qobuz app's picker shows `"Milō"`. qobuz-proxy slugifies
+  it into the speaker's id (`"mil"`), so the monitor finds the speaker by its
+  `audio_device`, never by id. It was ASCII until 2026-11-26, because the Qobuz
+  iOS app aborted the Connect handshake on the macron in July; retested on
+  1.7.8, it connects. Milō's own UI shows the `audioSources.qobuz` label ("Qobuz").
 
 ### Engine + player source: Music Library (Family C)
 
@@ -1252,7 +1254,7 @@ the ones that do not.
 | `CAMILLADSP_VERSION` | Change volume, switch an EQ preset | Volume attenuates **in CamillaDSP** and the card mixer stays at unity; a preset change is audible; `bypass_effects()`/`restore_effects()` still round-trip. Check `/proc/asound/sndrpihifiberry/pcm0p/sub0/status` reads `RUNNING`, not `PAUSED` — the silence-pause failure leaves no log line |
 | `SNAPCAST_VERSION` | Play to a satellite | Both rooms stay in sync for minutes, not seconds. Needs a **second Pi**; this row cannot be run on one unit |
 | `NAVIDROME_VERSION` | Browse and play the Music Library | The catalog is complete after a rescan, and a track from an *unmounted* share fails visibly rather than streaming a 200 + JSON error body |
-| `QOBUZ_PROXY_VERSION` | Play from the Qobuz app | The device still appears under its ASCII name, **and the progress bar moves** — Milō adds position/duration to a status API that omits them, and the update refuses a release that stopped offering what it binds to (`milo-qobuz --check`). Needs a **paid Qobuz account** |
+| `QOBUZ_PROXY_VERSION` | Play from the Qobuz app | The device still appears as "Milō" and connects, **and the progress bar moves** — Milō adds position/duration to a status API that omits them, and the update refuses a release that stopped offering what it binds to (`milo-qobuz --check`). Needs a **paid Qobuz account** |
 | `BLUEZ_ALSA_VERSION` | Pair a phone, play, press pause on the phone | Audio, **and** the AVRCP transport: the pause button follows, title/artist arrive. A2DP without AVRCP looks like a working source with an empty card |
 | `ROC_TOOLKIT_VERSION` | Stream from the Mac | Audio arrives with no dropouts. Note that roc-vad sends silence continuously, so "connected" never means "playing" — judge it by ear. Needs a **Mac** |
 

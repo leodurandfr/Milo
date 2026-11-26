@@ -335,7 +335,7 @@ def _build_qobuz_proxy(move=None):
                     "album_art_url": track["artwork_url"],
                     "quality": "CD",
                 }
-            return {"name": "Milo", "status": "playing" if now_playing else "idle",
+            return {"name": "Milō", "status": "playing" if now_playing else "idle",
                     "now_playing": now_playing}
 
     def main():

@@ -131,8 +131,8 @@ class Sidecar:
             raise ConnectionRefusedError("Connect call failed ('127.0.0.1', 8689)")
         status = _UPSTREAM_STATUS.get(self.player_state, "idle")
         speaker: Dict[str, Any] = {
-            "id": "milo",
-            "name": "Milo",
+            "id": "mil",
+            "name": "Milō",
             "status": status,
             "config": {"audio_device": "milo_qobuz"},
             "now_playing": None,

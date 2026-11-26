@@ -434,7 +434,7 @@ check "nginx names the client on every proxied path" \
       "[ \"\$(grep -cF 'proxy_pass http://milo_backend' '${ROOT%/}/etc/nginx/sites-enabled/milo')\" = \"\$(grep -cF 'X-Forwarded-For \$proxy_add_x_forwarded_for' '${ROOT%/}/etc/nginx/sites-enabled/milo')\" ]"
 check "go-librespot uses avahi"     "grep -q 'zeroconf_backend: avahi' '${ROOT%/}/var/lib/milo/go-librespot/config.yml'"
 check "navidrome config written"    "[ -f '${ROOT%/}/var/lib/milo/navidrome/navidrome.toml' ]"
-check "qobuz config is ASCII-named" "grep -q 'name: Milo' '${ROOT%/}/var/lib/milo/qobuz/config.yaml'"
+check "qobuz speaker is named Milō" "grep -q 'name: Milō' '${ROOT%/}/var/lib/milo/qobuz/config.yaml'"
 check "qobuz dir is private"        "[ \"\$(stat -c %a '${ROOT%/}/var/lib/milo/qobuz')\" = 700 ]"
 check "snapserver.conf written"     "[ -f '${ROOT%/}/etc/snapserver.conf' ]"
 check "routing.env written"         "[ -f '${ROOT%/}/var/lib/milo/routing.env' ]"
