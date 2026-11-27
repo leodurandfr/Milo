@@ -290,13 +290,15 @@ class MpvSim:
         return True
 
     async def loadfile(self, url: str, *, start_s: Optional[float] = None,
-                       mode: str) -> Optional[int]:
+                       user_agent: Optional[str] = None, mode: str) -> Optional[int]:
         self.sent.append(("loadfile", url, mode, start_s))
         if not self._ok():
             return None
         options = {}
         if start_s is not None:
             options["start"] = str(start_s)
+        if user_agent is not None:
+            options["user-agent"] = user_agent
         if mode not in ("replace", "append", "insert-next"):
             raise ValueError(f"loadfile mode {mode!r} is not modelled")
         self._finish_drain()

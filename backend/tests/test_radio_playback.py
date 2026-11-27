@@ -18,6 +18,7 @@ import pytest
 
 from backend.tests.golden.harness import settle
 from backend.tests.golden.test_wire_radio import FIP, NOVA
+from backend.sources.radio.stream_agent import agent_for
 from backend.tests.radio_world import RadioWorld
 
 # A station from a search: not a favorite, carried in the request body.
@@ -201,6 +202,41 @@ class TestSwitchingStations:
         assert radio.active()
         assert radio.station() == "fip"
         assert radio.phase() == "loading"
+
+
+class TestStationAgent:
+    """The agent a tune connects with. A station on a host measured to splice
+    an ad over a player's first seconds (Infomaniak) loads with the agent
+    `stream_agent.agent_for` names; every other station on mpv's own default.
+    One agent for all was measured to cost the stations that refuse it
+    (SomaFM answers `curl/` with a 403)."""
+
+    INFOMANIAK = {**NOVA, "id": "nova-odn", "url": "https://nova-odn.ice.infomaniak.ch/nova-odn-256.aac"}
+
+    async def test_a_splicing_host_is_loaded_with_the_splice_free_agent(self, radio):
+        agent = agent_for(self.INFOMANIAK["url"])
+        assert agent is not None, "the fixture must name a host stream_agent knows"
+        radio.favorites(FIP, self.INFOMANIAK)
+        await radio.select()
+
+        await radio.tune(self.INFOMANIAK)
+
+        assert radio.mpv.current.url == self.INFOMANIAK["url"]
+        assert radio.mpv.current.options.get("user-agent") == agent
+
+    async def test_the_next_station_is_back_on_mpvs_default(self, radio):
+        """The agent is the entry's, not mpv's: the station tuned next, on a
+        host that may refuse it, must not inherit it."""
+        radio.favorites(FIP, self.INFOMANIAK)
+        await radio.select()
+        await radio.tune(self.INFOMANIAK)
+        assert "user-agent" in radio.mpv.current.options
+
+        await radio.tune(FIP)
+
+        assert radio.mpv.current.url == FIP["url"]
+
+        assert "user-agent" not in radio.mpv.current.options
 
 
 class TestStreamRefusedByMpv:

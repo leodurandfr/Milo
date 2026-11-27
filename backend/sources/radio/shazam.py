@@ -55,6 +55,7 @@ from shazamio import Shazam
 from shazamio.interfaces.client import HTTPClientInterface
 
 from backend.shared.network import describe_network_error, retry_after
+from backend.sources.radio.stream_agent import agent_for
 
 logger = logging.getLogger("source.radio.shazam")
 
@@ -66,14 +67,6 @@ RECOGNITION_TIMEOUT_SECONDS = 25
 
 # ffmpeg capture timeout (capture duration + buffer for connection/codec init)
 FFMPEG_TIMEOUT_SECONDS = SEGMENT_DURATION_SECONDS + 15
-
-# The User-Agent every capture connects with — the one the radio's mpv sends
-# (system/milo-radio.service's `--user-agent`, held equal by
-# tests/architecture/test_radio_user_agent.py). Infomaniak's streaming server
-# splices a 15-30 s ad over the start of every new connection from a player's
-# agent (ffmpeg's `Lavf/…` among them, measured 2026-11-27), and each capture
-# is a new connection: under its own agent, the capture fingerprinted the ad.
-STREAM_USER_AGENT = "curl/8.7.1"
 
 # When to ask next (`next_delay`): RECOGNITION_INTERVAL_S after every answer.
 # A try lasts the capture plus the call (~15 s), so this is one request every
@@ -544,14 +537,18 @@ class ShazamRecognitionService:
         where ffmpeg writes 0xFFFFFFFF as RIFF size, which rodio/hound rejects)
         and wraps it with Python's wave module to produce correct RIFF headers.
 
-        The connection carries `STREAM_USER_AGENT`, so a server that splices an
-        ad over a player's first seconds sends this capture the live stream.
+        Each capture is a new connection: on a host that splices an ad over a
+        player's first seconds, it carries the agent `stream_agent.agent_for`
+        names - an input option, before `-i`, or ffmpeg drops it - so the
+        capture hears the live stream rather than the ad.
         """
         process = None
         try:
-            cmd = [
-                "ffmpeg",
-                "-user_agent", STREAM_USER_AGENT,
+            cmd = ["ffmpeg"]
+            agent = agent_for(url)
+            if agent is not None:
+                cmd += ["-user_agent", agent]
+            cmd += [
                 "-i", url,
                 "-t", str(SEGMENT_DURATION_SECONDS),
                 "-f", "s16le",

@@ -629,6 +629,7 @@ class MpvController:
         url: str,
         *,
         start_s: Optional[float] = None,
+        user_agent: Optional[str] = None,
         mode: str,
     ) -> Optional[int]:
         """Load `url` and return the playlist entry id mpv gave it.
@@ -636,17 +637,25 @@ class MpvController:
         The id is what `start-file` and `end-file` name, so it is how an event
         is matched to the load that caused it. `start_s` rides on the load as a
         per-file option: one command lands at the right second (measured on mpv
-        0.40), no wait-then-seek. mpv wants the index slot once options follow,
-        and reads it for `insert-at` alone.
+        0.40), no wait-then-seek. `user_agent` rides the same way, so it holds
+        for this entry only and the next load is back on mpv's default (also
+        measured on 0.40). mpv wants the index slot once options follow, and
+        reads it for `insert-at` alone.
 
         Returns:
             The entry id, or None when there is no mpv, no answer or a refusal.
         """
+        # The options string is comma-separated, unquoted: a comma in the agent
+        # would cut it in two and hand mpv a stray option.
+        if user_agent is not None and "," in user_agent:
+            raise ValueError(f"user_agent cannot carry a comma: {user_agent!r}")
         if not await self._prepare_load(url, quiet=mode in ("append", "insert-next")):
             return None
         options = []
         if start_s is not None:
             options.append(f"start={start_s}")
+        if user_agent is not None:
+            options.append(f"user-agent={user_agent}")
         args = [url, mode, -1, ",".join(options)] if options else [url, mode]
         response = await self._send_command("loadfile", *args)
 

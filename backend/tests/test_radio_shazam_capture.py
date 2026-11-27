@@ -30,6 +30,7 @@ import backend.sources.radio.shazam as shazam_mod
 from backend.sources.radio.shazam import (
     RecognitionQuota, ShazamRecognitionService, ShazamRefused,
 )
+from backend.sources.radio.stream_agent import agent_for
 from backend.tests.shazam_world import Reply, ShazamWorld, match
 
 
@@ -158,22 +159,31 @@ class TestCaptureFormatContract:
 class TestCaptureUserAgent:
     """Every capture is a new connection to the station, and Infomaniak's
     streaming server splices an ad over the first seconds of one from a
-    player's agent (measured 2026-11-27): the capture must carry the agent it
-    leaves alone, the one the radio's mpv sends."""
+    player's agent (measured 2026-11-27): on such a host the capture carries
+    the agent `stream_agent.agent_for` names, and nowhere else."""
 
     @pytest.mark.asyncio
-    async def test_the_agent_is_an_input_option_so_it_reaches_the_connection(
-        self, service, spawns
-    ):
+    async def test_on_a_splicing_host_the_agent_is_an_input_option(self, service, spawns):
         """Position is the whole mechanism. ffmpeg binds an option to the file
         named after it: placed after `-i`, the agent is an output option ffmpeg
         drops, and the connection goes out as `Lavf/…` — an agent the ad is
         spliced for, so Shazam fingerprints the ad instead of the music."""
-        await service._capture_audio("http://stream/fip")
+        url = "https://nova-odn.ice.infomaniak.ch/nova-odn-256.aac"
+        assert agent_for(url) is not None, "the URL must name a host stream_agent knows"
+
+        await service._capture_audio(url)
 
         argv = spawns[0]
-        assert argv[argv.index("-user_agent") + 1] == shazam_mod.STREAM_USER_AGENT
+        assert argv[argv.index("-user_agent") + 1] == agent_for(url)
         assert argv.index("-user_agent") < argv.index("-i")
+
+    @pytest.mark.asyncio
+    async def test_any_other_host_keeps_ffmpegs_own_agent(self, service, spawns):
+        """A host that refuses the splice-free agent (SomaFM's 403) would fail
+        every capture under it."""
+        await service._capture_audio("https://ice2.somafm.com/groovesalad-128-mp3")
+
+        assert "-user_agent" not in spawns[0]
 
 
 class TestCaptureFailures:

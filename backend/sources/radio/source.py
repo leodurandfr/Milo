@@ -35,6 +35,7 @@ from backend.sources.radio.data import StationDataService
 from backend.sources.radio.logos import StationLogos, TrackCovers
 from backend.sources.radio import radiofrance
 from backend.sources.radio.playlist import is_playlist_url, resolve_stream_url
+from backend.sources.radio.stream_agent import agent_for
 from backend.sources.radio.shazam import RecognitionQuota, ShazamRecognitionService
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.radio.browser_api import RadioBrowserAPI
@@ -424,7 +425,9 @@ class RadioSource(MpvAudioSource):
 
         async def load():
             if await self._mpv_ready() and await self._set_mpv_pause(False):
-                return await self._mpv.loadfile(session.stream_url, mode="replace")
+                return await self._mpv.loadfile(
+                    session.stream_url, user_agent=agent_for(session.stream_url), mode="replace",
+                )
             return None
 
         entry = await self._attempt(load)

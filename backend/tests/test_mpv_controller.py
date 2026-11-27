@@ -732,6 +732,31 @@ class TestLoadfile:
         loads = [f for f in fake.received if f[0] == "loadfile"]
         assert loads == [["loadfile", "http://example.test/a", "replace", -1, "start=12"]]
 
+    async def test_the_agent_rides_on_the_load_beside_the_start(self, live_mpv):
+        """Measured on mpv 0.40: a per-file `user-agent` holds for that entry
+        and the next load is back on `libmpv`. The options are one
+        comma-separated string."""
+        controller, fake = live_mpv
+
+        await controller.loadfile(
+            "http://example.test/a", start_s=3, user_agent="curl/8.7.1", mode="replace",
+        )
+
+        loads = [f for f in fake.received if f[0] == "loadfile"]
+        assert loads == [[
+            "loadfile", "http://example.test/a", "replace", -1, "start=3,user-agent=curl/8.7.1",
+        ]]
+
+    async def test_an_agent_with_a_comma_is_refused_before_mpv_sees_it(self, live_mpv):
+        """Unquoted, the comma would end the option there and hand mpv the
+        rest as an option of its own."""
+        controller, fake = live_mpv
+
+        with pytest.raises(ValueError):
+            await controller.loadfile("http://example.test/a", user_agent="a,b", mode="replace")
+
+        assert not [f for f in fake.received if f[0] == "loadfile"]
+
     async def test_a_plain_load_sends_no_options(self, live_mpv):
         controller, fake = live_mpv
 
