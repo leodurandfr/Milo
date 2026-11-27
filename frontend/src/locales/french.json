@@ -32,13 +32,14 @@
   "settings": {
     "title": "Paramètres de Milō",
     "section": {
-      "general": "Général",
+      "interface": "Interface",
       "audio": "Audio",
       "sources": "Sources",
       "device": "Appareil"
     },
     "languageRegion": "Langue et région",
     "language": "Langue",
+    "advanced": "Paramètres avancés",
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Affichage",
@@ -324,6 +325,8 @@
     "increase": "Monter le volume"
   },
   "volumeSettings": {
+    "inDock": "Dans le Dock",
+    "inDockDescription": "Les écrans sur lesquels le Dock affiche le contrôle du volume.",
     "volumeManagement": "Volume géré par Milō",
     "volumeNotManaged": "Le volume n'est pas géré par Milō",
     "controls": "Contrôles du volume",

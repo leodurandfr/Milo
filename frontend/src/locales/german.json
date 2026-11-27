@@ -32,13 +32,14 @@
   "settings": {
     "title": "Milō Einstellungen",
     "section": {
-      "general": "Allgemein",
+      "interface": "Oberfläche",
       "audio": "Audio",
       "sources": "Quellen",
       "device": "Gerät"
     },
     "languageRegion": "Sprache und Region",
     "language": "Sprache",
+    "advanced": "Erweiterte Einstellungen",
     "dock": "Dock",
     "volume": "Lautstärke",
     "screen": "Anzeige",
@@ -324,6 +325,8 @@
     "increase": "Lautstärke erhöhen"
   },
   "volumeSettings": {
+    "inDock": "Im Dock",
+    "inDockDescription": "Die Bildschirme, auf denen das Dock die Lautstärkeregelung zeigt.",
     "volumeManagement": "Lautstärke von Milō gesteuert",
     "volumeNotManaged": "Die Lautstärke wird nicht von Milō gesteuert",
     "controls": "Lautstärkeregler",

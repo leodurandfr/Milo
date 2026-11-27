@@ -8,7 +8,7 @@
  * composable also takes `refusal` and hands it to a SettingsRefusal.
  *
  * A write refused once its screen has left (a debounced write flushed on
- * unmount: Dock, Dock › Volume, the normalization switch) has no screen of its
+ * unmount: Dock, the dock switches of Volume, the normalization switch) has no screen of its
  * own left to be said on, so the composable hands it to the settings store and
  * SettingsModal says it under the next view. A writer mounted anywhere else, or
  * a modal that stops drawing it, undoes that refusal with no word of why.
@@ -38,7 +38,7 @@ const writers = vueFiles(SRC)
 
 describe('a settings write that is refused is said', () => {
   it('finds the screens that write settings', () => {
-    expect(writers.length).toBeGreaterThanOrEqual(11);
+    expect(writers.length).toBeGreaterThanOrEqual(10);
   });
 
   it('every one of them draws its refusal', () => {

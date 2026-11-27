@@ -32,13 +32,14 @@
   "settings": {
     "title": "Milō 设置",
     "section": {
-      "general": "通用",
+      "interface": "界面",
       "audio": "音频",
       "sources": "音源",
       "device": "设备"
     },
     "languageRegion": "语言与地区",
     "language": "语言",
+    "advanced": "高级设置",
     "dock": "Dock",
     "volume": "音量",
     "screen": "显示",
@@ -324,6 +325,8 @@
     "increase": "提高音量"
   },
   "volumeSettings": {
+    "inDock": "在 Dock 中",
+    "inDockDescription": "Dock 显示音量控制的屏幕。",
     "volumeManagement": "音量由 Milō 管理",
     "volumeNotManaged": "音量未由 Milō 管理",
     "controls": "音量控制",

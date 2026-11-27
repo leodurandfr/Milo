@@ -32,13 +32,14 @@
   "settings": {
     "title": "Definições do Milō",
     "section": {
-      "general": "Geral",
+      "interface": "Interface",
       "audio": "Áudio",
       "sources": "Fontes",
       "device": "Dispositivo"
     },
     "languageRegion": "Idioma e região",
     "language": "Idioma",
+    "advanced": "Definições avançadas",
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Ecrã",
@@ -324,6 +325,8 @@
     "increase": "Aumentar o volume"
   },
   "volumeSettings": {
+    "inDock": "No Dock",
+    "inDockDescription": "Os ecrãs em que o Dock mostra o controlo do volume.",
     "volumeManagement": "Volume gerido pelo Milō",
     "volumeNotManaged": "O volume não é gerido pelo Milō",
     "controls": "Controlos de volume",

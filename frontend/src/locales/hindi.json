@@ -32,13 +32,14 @@
   "settings": {
     "title": "Milō सेटिंग्स",
     "section": {
-      "general": "सामान्य",
+      "interface": "इंटरफ़ेस",
       "audio": "ऑडियो",
       "sources": "स्रोत",
       "device": "डिवाइस"
     },
     "languageRegion": "भाषा और क्षेत्र",
     "language": "भाषा",
+    "advanced": "उन्नत सेटिंग्स",
     "dock": "Dock",
     "volume": "वॉल्यूम",
     "screen": "डिस्प्ले",
@@ -324,6 +325,8 @@
     "increase": "वॉल्यूम बढ़ाएँ"
   },
   "volumeSettings": {
+    "inDock": "Dock में",
+    "inDockDescription": "वे स्क्रीन जिन पर Dock वॉल्यूम नियंत्रण दिखाता है।",
     "volumeManagement": "वॉल्यूम Milō द्वारा प्रबंधित",
     "volumeNotManaged": "वॉल्यूम Milō द्वारा प्रबंधित नहीं है",
     "controls": "वॉल्यूम नियंत्रण",

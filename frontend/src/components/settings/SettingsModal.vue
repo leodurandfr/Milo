@@ -64,9 +64,7 @@
 
 
       <DockSettings v-else-if="currentView === 'apps'" key="apps" class="view-content"
-        @open-volume="push('dock-volume')" />
-
-      <DockVolumeSettings v-else-if="currentView === 'dock-volume'" key="dock-volume" class="view-content" />
+        @open-volume="push('volume')" />
 
       <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
 
@@ -148,6 +146,9 @@
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
       <SystemSettings v-else-if="currentView === 'system'" key="system" class="view-content"
+        @open-hardware="push('hardware')" @open-advanced="push('system-advanced')" />
+
+      <SystemAdvancedSettings v-else-if="currentView === 'system-advanced'" key="system-advanced" class="view-content"
         @open-password="push('system-password')" />
 
 
@@ -187,7 +188,6 @@ import { SETTINGS_ICONS } from '@/components/settings/settingsIcons';
 import SectionCard from '@/components/ui/SectionCard.vue';
 
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
-import DockVolumeSettings from '@/components/settings/categories/DockVolumeSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import AudioPlaybackSettings from '@/components/settings/categories/AudioPlaybackSettings.vue';
@@ -211,6 +211,7 @@ import WizardBrowse from '@/components/settings/categories/music-library/WizardB
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import SystemSettings from '@/components/settings/categories/SystemSettings.vue';
+import SystemAdvancedSettings from '@/components/settings/categories/SystemAdvancedSettings.vue';
 import SystemPasswordSettings from '@/components/settings/categories/SystemPasswordSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 import { preloadNetworkStatus } from '@/composables/useNetwork';
@@ -320,14 +321,14 @@ function back() { navBack(); prepareNavigation(); }
 // `visible` reads stores, so the table is built here rather than in a module.
 const HOME_SECTIONS = [
   {
-    key: 'general',
-    titleKey: 'settings.section.general',
+    key: 'interface',
+    titleKey: 'settings.section.interface',
     rows: [
-      { view: 'apps', titleKey: 'settings.dock', icon: 'dock' },
       // Offered on every unit: the theme it carries is every browser's, a
       // phone driving a unit with no screen included. Only its kiosk settings
       // are gated, inside the view.
       { view: 'screen', titleKey: 'settings.screen', icon: 'display' },
+      { view: 'apps', titleKey: 'settings.dock', icon: 'dock' },
     ],
   },
   {
@@ -337,7 +338,6 @@ const HOME_SECTIONS = [
       { view: 'volume', titleKey: 'settings.volume', icon: 'volume',
         visible: () => unifiedStore.volumeState.any_volume_control },
       { view: 'audio-playback', titleKey: 'settings.audioPlayback', icon: 'audioPlayback' },
-      { view: 'remote-controls', titleKey: 'settings.remoteControls', icon: 'remoteControls' },
       { view: 'multiroom', titleKey: 'audioSources.multiroom', icon: 'multiroom',
         visible: () => settingsStore.dockApps.multiroom },
     ],
@@ -363,11 +363,13 @@ const HOME_SECTIONS = [
     titleKey: 'settings.section.device',
     rows: [
       { view: 'network', titleKey: 'settings.network', icon: 'network' },
-      { view: 'hardware', titleKey: 'settings.hardware', icon: 'hardware' },
+      // The remotes are devices paired with the unit, like its network; their
+      // wiring (the IR receiver's pins) stays in Hardware.
+      { view: 'remote-controls', titleKey: 'settings.remoteControls', icon: 'remoteControls' },
       { view: 'updates', titleKey: 'settings.updates', icon: 'updates' },
-      // Language and timezone are a card of System, its second: set once, at
-      // setup, and found there in two taps by anyone, each language named in
-      // itself.
+      // What is set once, at setup, or reached for when something goes wrong
+      // sits inside System: language and timezone as its second card, Hardware
+      // and the advanced settings (SSH, troubleshooting, reset) as two rows.
       { view: 'system', titleKey: 'settings.system', icon: 'system' },
     ],
   },
@@ -392,7 +394,8 @@ const headerTitle = computed(() => {
 
   const titles = {
     'home': t('settings.title'),
-    'dock-volume': t('settings.volume'),
+    'hardware': t('settings.hardware'),
+    'system-advanced': t('settings.advanced'),
     'bt-remote': t('settings.btRemote'),
     'ir-remote': t('settings.irRemote'),
     'multiroom-zone-edit': zoneGroupId.value
@@ -441,10 +444,10 @@ onBeforeUnmount(() => {
   if (currentView.value === 'macos') macLinkStore.discardUnapplied();
 });
 
-// Navigate away from the volume views when no device manages volume anymore
-// (Dock › Volume's own row is hidden then too)
+// Navigate away from the volume view when no device manages volume anymore
+// (its home row is hidden then too)
 watch(() => unifiedStore.volumeState.any_volume_control, (hasControl) => {
-  if (!hasControl && ['volume', 'dock-volume'].includes(currentView.value)) back();
+  if (!hasControl && currentView.value === 'volume') back();
 });
 
 // Watch initialView prop for direct navigation (e.g., deep-link into a settings view)

@@ -35,6 +35,21 @@
       </Collapse>
     </SectionCard>
 
+    <!-- On which screens the dock offers the volume control. Dock's own Volume
+         row leads here, since that row has no switch. -->
+    <SectionCard :title="t('volumeSettings.inDock')" :description="t('volumeSettings.inDockDescription')">
+      <div class="surface-list">
+        <ListItemButton
+          v-for="surface in DOCK_SURFACES"
+          :key="surface.key"
+          :title="t(surface.labelKey)"
+          action="toggle"
+          :model-value="settingsStore.dockVolume[surface.key]"
+          @update:model-value="(value) => handleDockVolumeToggle(surface.key, value)"
+        />
+      </div>
+    </SectionCard>
+
     <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
@@ -54,13 +69,27 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 
 const { t } = useI18n();
 // Every control here holds a local copy, which a refused write puts back on
 // the store.
-const { updateSetting, refusal } = useSettingsAPI({ resync: syncFromStore });
+const { updateSetting, debouncedUpdate, refusal } = useSettingsAPI({ resync: syncFromStore });
 const { rotaryEnabled } = useHardwareConfig();
 const settingsStore = useSettingsStore();
+
+const DOCK_SURFACES = [
+  { key: 'milo_screen', labelKey: 'dockVolume.miloScreen' },
+  { key: 'desktop_browser', labelKey: 'dockVolume.desktopBrowser' },
+  { key: 'phone_browser', labelKey: 'dockVolume.phoneBrowser' },
+  { key: 'ios_app', labelKey: 'dockVolume.iosApp' }
+];
+
+// The switches draw the store, which a refused write reads back.
+function handleDockVolumeToggle(surface, value) {
+  settingsStore.updateDockVolume({ [surface]: value });
+  debouncedUpdate('dock-volume', 'dock-volume', { ...settingsStore.dockVolume }, 300);
+}
 const unifiedStore = useUnifiedAudioStore();
 
 // Local refs for instant responsiveness (all values in dB), taken from the
@@ -115,3 +144,18 @@ watch(
 );
 
 </script>
+
+<style scoped>
+.surface-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
+}
+
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
+  .surface-list {
+    display: flex;
+    flex-direction: column;
+  }
+}
+</style>

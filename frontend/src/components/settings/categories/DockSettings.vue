@@ -37,7 +37,7 @@
           :style="section.drag.itemStyle(index)"
           @pointerdown="section.isReordering ? section.drag.onPointerDown($event, index) : null"
         >
-          <!-- Volume has no switch of its own: where it shows is chosen per screen, one level down -->
+          <!-- Volume has no switch of its own: where it shows is chosen per screen, in Settings › Volume -->
           <ListItemButton
             :title="section.titleOf(id)"
             :model-value="config[id]"
