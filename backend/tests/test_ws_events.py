@@ -169,9 +169,9 @@ CASES = [
                   "success": False, "error": "Failed to stop service"}},
     ),
     (
-        EqualizerLevels(available=True, output_peak=[-12.5, -13.0]),
+        EqualizerLevels(available=True, signal_peak=[-6.5, -7.0], output_peak=[-52.5, -53.0]),
         {"category": "equalizer", "type": "levels", "origin": "equalizer",
-         "data": {"available": True, "output_peak": [-12.5, -13.0]}},
+         "data": {"available": True, "signal_peak": [-6.5, -7.0], "output_peak": [-52.5, -53.0]}},
     ),
     (
         # EXCLUDE_NONE: the zone_client_removed variant carries mac_id, no zone key

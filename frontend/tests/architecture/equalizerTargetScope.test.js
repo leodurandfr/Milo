@@ -81,8 +81,9 @@ function sourceFiles(dir) {
  * from a payload whose target was not checked. `state` is the connection of the
  * CamillaDSP that serves the target — the local one for the DAC and a zone, the
  * satellite's own for a remote client — so equalizer/state_changed, which only
- * speaks for the local one, is target-scoped too. `outputPeak` (an aggregate the
- * caller chooses the clients for) is deliberately absent: it is not per-target.
+ * speaks for the local one, is target-scoped too. `signalPeak` and `outputPeak`
+ * (aggregates the caller chooses the clients for) are deliberately absent: they
+ * are not per-target.
  */
 const TARGET_SCOPED_REFS = [
   'filters', 'compressor', 'loudness', 'mono',

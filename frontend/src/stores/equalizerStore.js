@@ -53,7 +53,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const isEqualizerEffectsEnabled = ref(true);
   const isTogglingEnabled = ref(false);
 
-  // Audio levels (for meters)
+  // Audio levels (for meters): the music before the volume, which the bar
+  // draws, and what reaches the DAC, which alone can clip.
+  const signalPeak = ref([-80, -80]);
   const outputPeak = ref([-80, -80]);
   // Set while every selected client is muted: the monitor is not armed then,
   // but one armed before keeps pushing for its TTL and must not reach the meters.
@@ -943,10 +945,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   /**
    * Handle pushed level samples while the monitor is armed.
    * Schema in @/schemas/ws.js → 'equalizer.levels'.
-   * @param {{available: boolean, output_peak: number[]}} payload
+   * @param {{available: boolean, signal_peak: number[], output_peak: number[]}} payload
    */
   function handleLevelsChanged(payload) {
     if (metersSilenced) return;
+    signalPeak.value = payload.available ? payload.signal_peak : [-80, -80];
     outputPeak.value = payload.available ? payload.output_peak : [-80, -80];
   }
 
@@ -974,6 +977,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     const clientIds = meterClientIds(selectedIds);
     metersSilenced = clientIds === null;
     if (metersSilenced) {
+      signalPeak.value = [-80, -80];
       outputPeak.value = [-80, -80];
       return;
     }
@@ -1092,6 +1096,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     filtersLoaded,
     hasRecord,
     loadFailed,
+    signalPeak,
     outputPeak,
 
     // Equalizer Effects Enabled State

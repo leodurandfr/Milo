@@ -19,10 +19,11 @@ from backend.core.models.ws_events import EqualizerLevels
 logger = logging.getLogger(__name__)
 
 SILENT_PEAK = [-80.0, -80.0]
+PEAK_KEYS = ("signal_peak", "output_peak")
 
 
 class LevelsMonitor:
-    """Samples CamillaDSP output levels while a UI keepalive is fresh."""
+    """Samples CamillaDSP levels while a UI keepalive is fresh."""
 
     SAMPLE_INTERVAL = 0.1   # 10 Hz — fast enough that the UI's CSS transition reads as continuous motion
     KEEPALIVE_TTL = 15.0    # sampling survives this long past the last keepalive
@@ -70,29 +71,27 @@ class LevelsMonitor:
         logger.debug("Levels monitor stopped (keepalive expired)")
 
     async def _sample(self) -> Dict[str, Any]:
-        """One reading: local DAC, or the AVERAGE across the requested clients."""
-        if not self._client_ids:
-            levels = await self.camilladsp_service.get_levels()
-            if not levels.get("available"):
-                return {"available": False, "output_peak": list(SILENT_PEAK)}
-            return {"available": True, "output_peak": levels.get("output_peak", list(SILENT_PEAK))}
+        """One reading: local DAC, or the AVERAGE across the requested clients.
 
-        results = await asyncio.gather(
-            *(self._client_levels(cid) for cid in self._client_ids)
-        )
-        peaks = [
-            r["output_peak"] for r in results
-            if r and r.get("available") and len(r.get("output_peak") or []) >= 2
-        ]
-        if not peaks:
-            return {"available": False, "output_peak": list(SILENT_PEAK)}
-        return {
-            "available": True,
-            "output_peak": [
-                sum(p[0] for p in peaks) / len(peaks),
-                sum(p[1] for p in peaks) / len(peaks),
-            ],
-        }
+        A reading counts only with both peaks for both channels: a satellite
+        whose app predates `signal_peak`, or a window no chunk was played in,
+        is no reading rather than a meter drawn from half of one.
+        """
+        if not self._client_ids:
+            results = [await self.camilladsp_service.get_levels()]
+        else:
+            results = await asyncio.gather(
+                *(self._client_levels(cid) for cid in self._client_ids)
+            )
+        readings = [r for r in results if r and r.get("available") and all(
+            len(r.get(key) or []) >= 2 for key in PEAK_KEYS
+        )]
+        if not readings:
+            return {"available": False, **{key: list(SILENT_PEAK) for key in PEAK_KEYS}}
+        return {"available": True, **{
+            key: [sum(r[key][ch] for r in readings) / len(readings) for ch in (0, 1)]
+            for key in PEAK_KEYS
+        }}
 
     async def _client_levels(self, client_id: str) -> Optional[Dict[str, Any]]:
         # Best-effort: an offline satellite must not break the aggregate.

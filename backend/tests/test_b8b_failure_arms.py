@@ -305,20 +305,25 @@ class TestCamillaDspReadGuards:
         svc.state_machine.broadcast = AsyncMock()
         return svc
 
-    async def test_levels_are_one_read_of_the_playback_meter(self, service):
-        """`LevelsMonitor` samples at 10 Hz over the one socket the volume and
-        the EQ share, and keeps `output_peak` alone: a second read of the
-        capture meter doubled that traffic for a value nothing consumed."""
+    async def test_the_signal_peak_is_the_playback_peak_before_the_fader(self, service):
+        """The meter draws `signal_peak`: after the fader, a room at -45 dB
+        peaks near -52 dBFS and the bar stays empty whatever plays. Two reads
+        over the one socket the volume and the EQ share, both consumed — the
+        capture meter stays unread, as a value nothing consumes."""
         client = AsyncMock()
-        client.get_playback_peak.return_value = [-25.0, -26.0]
+        client.get_playback_peak_since.return_value = [-52.0, -53.5]
+        client.get_volume.return_value = -45.0
         service._client = client
         service._connected = True
 
         assert await service.get_levels() == {
             "available": True,
-            "output_peak": [-25.0, -26.0],
+            "output_peak": [-52.0, -53.5],
+            "signal_peak": [-7.0, -8.5],
         }
-        assert [name for name, _, _ in client.mock_calls] == ["get_playback_peak"]
+        assert sorted(name for name, _, _ in client.mock_calls) == [
+            "get_playback_peak_since", "get_volume",
+        ]
 
     async def test_a_disconnected_service_reports_levels_unavailable(self, service):
         """The meters fall to the floor rather than freezing — a held meter over

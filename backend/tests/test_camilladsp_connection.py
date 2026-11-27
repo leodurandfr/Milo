@@ -107,7 +107,7 @@ def client_factory(monkeypatch):
     client.get_state.return_value = "Running"
     client.get_volume.return_value = -20.0
     client.get_mute.return_value = False
-    client.get_playback_peak.return_value = [-25.0, -25.0]
+    client.get_playback_peak_since.return_value = [-25.0, -25.0]
 
     def _build(host, port):
         built.append((host, port))

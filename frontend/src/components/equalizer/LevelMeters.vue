@@ -5,14 +5,16 @@
     <!-- Output meters -->
     <div class="stereo-meters">
       <LevelMeter
-        :level="outputLeft"
+        :level="signalLeft"
+        :output-level="outputLeft"
         :min="meterMin"
         :max="meterMax"
         label="L"
         :show-peak="true"
       />
       <LevelMeter
-        :level="outputRight"
+        :level="signalRight"
+        :output-level="outputRight"
         :min="meterMin"
         :max="meterMax"
         label="R"
@@ -45,21 +47,20 @@ const timer = useTimer();
 // re-posted; the backend stops sampling ~15 s after the meters unmount.
 const KEEPALIVE_INTERVAL = 5000;
 
-// Fixed metering range: 0 dBFS is the standard reference for audio level meters,
-// regardless of volume control settings (which define the volume knob range, not signal range)
+// Fixed metering range in dBFS. The bars draw the music before the volume: after
+// it, a room listened to at -46 dB peaks near -55 dBFS and fills a tenth of the
+// bar whatever plays. The warning colors read what reaches the DAC.
 const meterMin = -60;
 const meterMax = 0;
 
-// Convert array levels to individual channels
-const outputLeft = computed(() => {
-  const levels = equalizerStore.outputPeak;
-  return Array.isArray(levels) && levels.length > 0 ? levels[0] : meterMin;
-});
+function channel(levels, index) {
+  return Array.isArray(levels) && levels.length > index ? levels[index] : levels?.[0] ?? meterMin;
+}
 
-const outputRight = computed(() => {
-  const levels = equalizerStore.outputPeak;
-  return Array.isArray(levels) && levels.length > 1 ? levels[1] : outputLeft.value;
-});
+const signalLeft = computed(() => channel(equalizerStore.signalPeak, 0));
+const signalRight = computed(() => channel(equalizerStore.signalPeak, 1));
+const outputLeft = computed(() => channel(equalizerStore.outputPeak, 0));
+const outputRight = computed(() => channel(equalizerStore.outputPeak, 1));
 
 function keepalive() {
   equalizerStore.keepLevelsMonitorAlive(props.clientIds);

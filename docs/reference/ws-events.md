@@ -618,11 +618,12 @@ The connection to the DSP that carries volume and equalizer (CamillaDSP) changed
 
 ### equalizer/levels
 
-The output level meter: `output_peak` is `[left_db, right_db]`.
+The output level meter, `[left_db, right_db]` in dBFS: `signal_peak` is the music before the volume, `output_peak` what reaches the DAC.
 
 | Field | Type |
 |---|---|
 | `available` | boolean |
+| `signal_peak` | number[] |
 | `output_peak` | number[] |
 
 ### equalizer/enabled_changed

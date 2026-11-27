@@ -58,6 +58,13 @@ STARTUP_GAIN_DB = -80.0
 SILENCE_DBFS = -80.0
 SILENCE_WINDOW_S = 10.0
 
+# The window each level reading covers. CamillaDSP plays in bursts here (snapcast
+# and the Loopback feed it unevenly): measured 2026-11-27, a 0.1 s window often
+# held no chunk at all and answered [], 0.15 s always held one. The server
+# samples at 10 Hz, so consecutive readings overlap a little, which the meter
+# reads as a short hold.
+METER_WINDOW_S = 0.2
+
 
 def serialised_config_write(method):
     """Hold the config lock for a whole read-modify-write.
@@ -967,10 +974,18 @@ class EqualizerService:
             return None
 
     async def get_levels(self) -> Dict[str, Any]:
-        """The playback peak, what the server's LevelsMonitor reads (`output_peak`)."""
+        """What the server's LevelsMonitor reads: the playback peak
+        (`output_peak`, what reaches the DAC) and the same peak before the
+        fader (`signal_peak`), the one the meter draws — the fader is the
+        pipeline's last stage, as on the server."""
         try:
-            playback_levels = await self._exec(lambda c: c.get_playback_peak())
-            return {"available": True, "output_peak": playback_levels}
+            playback = await self._exec(lambda c: c.get_playback_peak_since(METER_WINDOW_S))
+            fader_db = await self._exec(lambda c: c.get_volume())
+            return {
+                "available": True,
+                "output_peak": playback,
+                "signal_peak": [peak - fader_db for peak in playback],
+            }
         except Exception as e:
             self.logger.debug(f"Error getting levels: {e}")
             return {"available": False}

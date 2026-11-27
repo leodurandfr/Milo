@@ -41,6 +41,13 @@ from backend.shared.persistence import (
     set_aside,
 )
 
+# The window each level reading covers. CamillaDSP plays in bursts here (snapcast
+# and the Loopback feed it unevenly): measured 2026-11-27, a 0.1 s window often
+# held no chunk at all and answered [], 0.15 s always held one. LevelsMonitor
+# samples at 10 Hz, so consecutive readings overlap a little, which the meter
+# reads as a short hold. The satellite declares its own (equalizer.py).
+METER_WINDOW_S = 0.2
+
 
 class CamillaDspState(str, Enum):
     """CamillaDSP daemon states"""
@@ -1036,17 +1043,25 @@ class CamillaDSPService:
 
     @handle_errors(default={"available": False}, level='debug')
     async def get_levels(self) -> Dict[str, Any]:
-        """The playback peak, the one level LevelsMonitor reads (`output_peak`).
+        """What LevelsMonitor reads: the playback peak (`output_peak`, what
+        reaches the DAC) and the same peak before the fader (`signal_peak`).
 
-        One command per reading, as on a satellite: LevelsMonitor samples at
-        10 Hz over the one control socket the volume and the EQ share, so a
-        capture peak nobody reads was half that traffic for nothing.
+        The meter draws `signal_peak`: after the fader, a room listened to at
+        -46 dB peaks near -55 dBFS and fills a tenth of the bar whatever plays.
+        The fader is the pipeline's last stage, so the playback peak minus it
+        is the music as the EQ, the loudness and the trim leave it. Two
+        commands, both consumed; the capture peak stays unread.
         """
         if not self._connected:
             return {"available": False}
 
-        playback = await self._run(self._client.get_playback_peak)
-        return {"available": True, "output_peak": playback}
+        playback = await self._run(self._client.get_playback_peak_since, METER_WINDOW_S)
+        fader_db = await self._run(self._client.get_volume)
+        return {
+            "available": True,
+            "output_peak": playback,
+            "signal_peak": [peak - fader_db for peak in playback],
+        }
 
     # === Preset Management ===
 

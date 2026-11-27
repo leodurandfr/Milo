@@ -813,13 +813,16 @@ class EqualizerStateChanged(WsEvent):
 
 
 class EqualizerLevels(WsEvent):
-    """The output level meter: `output_peak` is `[left_db, right_db]`.
+    """The output level meter, `[left_db, right_db]` in dBFS: `signal_peak` is
+    the music before the volume, `output_peak` what reaches the DAC.
 
-    Zod equalizer.levels → VU meter; output_peak = [left_db, right_db].
+    Zod equalizer.levels → VU meter: the bar draws signal_peak, and turns to a
+    warning only on output_peak, the one level that can clip.
     """
     CATEGORY = "equalizer"
     TYPE = "levels"
     available: bool
+    signal_peak: List[float]
     output_peak: List[float]
 
 

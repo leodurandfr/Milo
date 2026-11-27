@@ -996,10 +996,12 @@ describe('equalizerStore', () => {
     });
 
     it('levels falls back to silence when the monitor reports unavailable', () => {
-      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
-      expect(equalizerStore.outputPeak).toEqual([-12, -14]);
+      equalizerStore.handleLevelsChanged({ available: true, signal_peak: [-6, -8], output_peak: [-52, -54] });
+      expect(equalizerStore.signalPeak).toEqual([-6, -8]);
+      expect(equalizerStore.outputPeak).toEqual([-52, -54]);
 
-      equalizerStore.handleLevelsChanged({ available: false, output_peak: [-12, -14] });
+      equalizerStore.handleLevelsChanged({ available: false, signal_peak: [-6, -8], output_peak: [-52, -54] });
+      expect(equalizerStore.signalPeak).toEqual([-80, -80]);
       expect(equalizerStore.outputPeak).toEqual([-80, -80]);
     });
 
@@ -1588,10 +1590,10 @@ describe('equalizerStore', () => {
       setMultiroom(true, { [REMOTE_MAC]: { mute: true, volume_db: -30 } });
 
       await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC]);
-      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
+      equalizerStore.handleLevelsChanged({ available: true, signal_peak: [-12, -14], output_peak: [-12, -14] });
 
       expect(monitorPosts()).toEqual([]);
-      expect(equalizerStore.outputPeak).toEqual([-80, -80]);
+      expect(equalizerStore.signalPeak).toEqual([-80, -80]);
     });
 
     it('does not arm the local meter for a zone of muted satellites', async () => {
@@ -1601,10 +1603,10 @@ describe('equalizerStore', () => {
       });
 
       await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC, OTHER_MAC]);
-      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
+      equalizerStore.handleLevelsChanged({ available: true, signal_peak: [-12, -14], output_peak: [-12, -14] });
 
       expect(monitorPosts()).toEqual([]);
-      expect(equalizerStore.outputPeak).toEqual([-80, -80]);
+      expect(equalizerStore.signalPeak).toEqual([-80, -80]);
     });
 
     it('silences meters a monitor armed on another selection keeps feeding', async () => {
@@ -1612,12 +1614,12 @@ describe('equalizerStore', () => {
       // keep arriving after the selection moved to a muted satellite.
       setMultiroom(true, { [REMOTE_MAC]: { mute: true, volume_db: -30 } });
       await equalizerStore.keepLevelsMonitorAlive([LOCAL_MAC]);
-      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
+      equalizerStore.handleLevelsChanged({ available: true, signal_peak: [-12, -14], output_peak: [-12, -14] });
 
       await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC]);
-      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-10, -11] });
+      equalizerStore.handleLevelsChanged({ available: true, signal_peak: [-10, -11], output_peak: [-10, -11] });
 
-      expect(equalizerStore.outputPeak).toEqual([-80, -80]);
+      expect(equalizerStore.signalPeak).toEqual([-80, -80]);
     });
 
     it('arms the monitor on the unmuted members only', async () => {
@@ -1641,10 +1643,10 @@ describe('equalizerStore', () => {
       setMultiroom(true, { [REMOTE_MAC]: { mute: false, volume_db: -30 } });
 
       await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC]);
-      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
+      equalizerStore.handleLevelsChanged({ available: true, signal_peak: [-12, -14], output_peak: [-12, -14] });
 
       expect(monitorPosts().map(([, body]) => body)).toEqual([{ client_ids: [REMOTE_MAC] }]);
-      expect(equalizerStore.outputPeak).toEqual([-12, -14]);
+      expect(equalizerStore.signalPeak).toEqual([-12, -14]);
     });
   });
   describe('a zone crossover a member did not take', () => {

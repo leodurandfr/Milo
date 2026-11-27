@@ -101,11 +101,14 @@ describe('WS schema registry ↔ backend ws_events.py', () => {
 });
 
 describe('WS payload semantics', () => {
-  it('equalizer.levels keeps output_peak a number array', () => {
+  it('equalizer.levels keeps both peaks number arrays', () => {
     const schema = wsEventRegistry['equalizer.levels'];
+    const levels = { available: true, signal_peak: [-6.5, -8], output_peak: [-52.5, -54] };
 
-    expect(schema.safeParse({ available: true, output_peak: [-12.5, -14] }).success).toBe(true);
-    expect(schema.safeParse({ available: true, output_peak: ['-12.5'] }).success).toBe(false);
+    expect(schema.safeParse(levels).success).toBe(true);
+    expect(schema.safeParse({ ...levels, output_peak: ['-12.5'] }).success).toBe(false);
+    // The meter draws signal_peak: an event without it is refused, not drawn as silence.
+    expect(schema.safeParse({ available: true, output_peak: [-52.5, -54] }).success).toBe(false);
   });
 
   it('multiroom.equalizer_changed accepts a partial settings dict', () => {

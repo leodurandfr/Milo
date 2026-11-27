@@ -127,6 +127,7 @@ export const wsEventRegistry = {
   // levels-monitor keepalive.
   'equalizer.levels': z.object({
     available: z.boolean(),
+    signal_peak: z.array(z.number()),
     output_peak: z.array(z.number()),
   }),
   // Backend: MultiroomEqualizerChanged — equalizer_settings is a PARTIAL wire

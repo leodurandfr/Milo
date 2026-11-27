@@ -187,12 +187,12 @@ class TestTheTwelveCalls:
         assert config == {"filters": {"eq_band_00": {"type": "Biquad"}}}
         assert daemon.sent() == {"ReadConfigFile": "/var/lib/milo/camilladsp/config.yml"}
 
-    async def test_get_playback_peak(self, daemon, client):
-        daemon.answers("GetPlaybackSignalPeak", [-12.5, -13.5])
+    async def test_get_playback_peak_since(self, daemon, client):
+        daemon.answers("GetPlaybackSignalPeakSince", [-12.5, -13.5])
 
-        assert await client.get_playback_peak() == [-12.5, -13.5]
+        assert await client.get_playback_peak_since(0.2) == [-12.5, -13.5]
 
-        assert daemon.sent() == "GetPlaybackSignalPeak"
+        assert daemon.sent() == {"GetPlaybackSignalPeakSince": 0.2}
 
     @pytest.mark.parametrize(
         "measured, expected",

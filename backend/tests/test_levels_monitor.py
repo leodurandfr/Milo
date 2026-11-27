@@ -44,7 +44,7 @@ def router():
 @pytest.fixture
 def camilladsp():
     svc = Mock()
-    svc.get_levels = AsyncMock(return_value={"available": True, "output_peak": [-20.0, -21.0]})
+    svc.get_levels = AsyncMock(return_value={"available": True, "signal_peak": [-20.0, -21.0], "output_peak": [-20.0, -21.0]})
     return svc
 
 
@@ -166,7 +166,7 @@ class TestRunLoop:
             samples["n"] += 1
             if samples["n"] > 50:
                 raise StopTheMonitor("the expired deadline did not end the loop")
-            return {"available": True, "output_peak": [-80.0, -80.0]}
+            return {"available": True, "signal_peak": [-80.0, -80.0], "output_peak": [-80.0, -80.0]}
 
         monitor._sample = _sample
         monitor._deadline = asyncio.get_running_loop().time()
@@ -178,8 +178,8 @@ class TestRunLoop:
     async def test_a_changed_reading_is_broadcast(self, monitor, state_machine, camilladsp):
         monitor._deadline = asyncio.get_running_loop().time() + 3600
         camilladsp.get_levels = AsyncMock(side_effect=[
-            {"available": True, "output_peak": [-20.0, -21.0]},
-            {"available": True, "output_peak": [-10.0, -11.0]},
+            {"available": True, "signal_peak": [-20.0, -21.0], "output_peak": [-20.0, -21.0]},
+            {"available": True, "signal_peak": [-10.0, -11.0], "output_peak": [-10.0, -11.0]},
             StopTheMonitor(),
         ])
 
@@ -202,9 +202,9 @@ class TestRunLoop:
         """
         monitor._deadline = asyncio.get_running_loop().time() + 3600
         camilladsp.get_levels = AsyncMock(side_effect=[
-            {"available": True, "output_peak": [-80.0, -80.0]},
-            {"available": True, "output_peak": [-80.0, -80.0]},
-            {"available": True, "output_peak": [-80.0, -80.0]},
+            {"available": True, "signal_peak": [-80.0, -80.0], "output_peak": [-80.0, -80.0]},
+            {"available": True, "signal_peak": [-80.0, -80.0], "output_peak": [-80.0, -80.0]},
+            {"available": True, "signal_peak": [-80.0, -80.0], "output_peak": [-80.0, -80.0]},
             StopTheMonitor(),
         ])
 
@@ -224,7 +224,7 @@ class TestRunLoop:
         monitor._deadline = asyncio.get_running_loop().time() + 3600
         camilladsp.get_levels = AsyncMock(side_effect=[
             RuntimeError("daemon busy"),
-            {"available": True, "output_peak": [-30.0, -30.0]},
+            {"available": True, "signal_peak": [-30.0, -30.0], "output_peak": [-30.0, -30.0]},
             StopTheMonitor(),
         ])
 
@@ -241,10 +241,10 @@ class TestSampleLocal:
 
     async def test_the_local_reading_comes_straight_from_camilladsp(self, monitor, camilladsp):
         camilladsp.get_levels = AsyncMock(return_value={
-            "available": True, "output_peak": [-12.0, -13.0]
+            "available": True, "signal_peak": [-12.0, -13.0], "output_peak": [-12.0, -13.0]
         })
 
-        assert await monitor._sample() == {"available": True, "output_peak": [-12.0, -13.0]}
+        assert await monitor._sample() == {"available": True, "signal_peak": [-12.0, -13.0], "output_peak": [-12.0, -13.0]}
 
     async def test_an_unavailable_dsp_reads_as_the_silent_floor(self, monitor, camilladsp):
         """The meters must fall to the floor, not hold their last position.
@@ -255,7 +255,7 @@ class TestSampleLocal:
         camilladsp.get_levels = AsyncMock(return_value={"available": False})
 
         assert await monitor._sample() == {
-            "available": False, "output_peak": list(SILENT_PEAK)
+            "available": False, "signal_peak": list(SILENT_PEAK), "output_peak": list(SILENT_PEAK)
         }
 
     async def test_a_reading_with_no_peak_field_falls_back_to_the_floor(
@@ -266,8 +266,20 @@ class TestSampleLocal:
         camilladsp.get_levels = AsyncMock(return_value={"available": True})
 
         assert await monitor._sample() == {
-            "available": True, "output_peak": list(SILENT_PEAK)
+            "available": False, "signal_peak": list(SILENT_PEAK), "output_peak": list(SILENT_PEAK)
         }
+
+    async def test_a_window_no_chunk_was_played_in_reads_as_the_floor(
+        self, monitor, camilladsp
+    ):
+        """CamillaDSP answers a peak window with `[]` when no chunk was played in
+        it (a paused stream, or a burst gap longer than the window): the meters
+        fall to the floor rather than indexing an empty list."""
+        camilladsp.get_levels = AsyncMock(return_value={
+            "available": True, "signal_peak": [], "output_peak": [],
+        })
+
+        assert (await monitor._sample())["available"] is False
 
 
 class TestSampleClients:
@@ -277,13 +289,13 @@ class TestSampleClients:
         """Per channel, not across them: averaging L into R would collapse a
         stereo meter into two identical bars and hide a dead channel."""
         router.get_levels = AsyncMock(side_effect=[
-            {"available": True, "output_peak": [-20.0, -40.0]},
-            {"available": True, "output_peak": [-30.0, -50.0]},
+            {"available": True, "signal_peak": [-20.0, -40.0], "output_peak": [-20.0, -40.0]},
+            {"available": True, "signal_peak": [-30.0, -50.0], "output_peak": [-30.0, -50.0]},
         ])
         monitor._client_ids = ["aa:bb", "cc:dd"]
 
         assert await monitor._sample() == {
-            "available": True, "output_peak": [-25.0, -45.0]
+            "available": True, "signal_peak": [-25.0, -45.0], "output_peak": [-25.0, -45.0]
         }
 
     async def test_an_offline_satellite_is_dropped_from_the_average(self, monitor, router):
@@ -294,26 +306,55 @@ class TestSampleClients:
         than it is.
         """
         router.get_levels = AsyncMock(side_effect=[
-            {"available": True, "output_peak": [-20.0, -20.0]},
+            {"available": True, "signal_peak": [-20.0, -20.0], "output_peak": [-20.0, -20.0]},
             Exception("satellite unreachable"),
         ])
         monitor._client_ids = ["aa:bb", "cc:dd"]
 
         assert await monitor._sample() == {
-            "available": True, "output_peak": [-20.0, -20.0]
+            "available": True, "signal_peak": [-20.0, -20.0], "output_peak": [-20.0, -20.0]
+        }
+
+    async def test_the_two_peaks_are_averaged_apart(self, monitor, router):
+        """The bar draws `signal_peak` and the warning reads `output_peak`: two
+        rooms at different volumes carry the same music at different outputs,
+        and mixing one key into the other would color a bar by the wrong level."""
+        router.get_levels = AsyncMock(side_effect=[
+            {"available": True, "signal_peak": [-6.0, -8.0], "output_peak": [-50.0, -52.0]},
+            {"available": True, "signal_peak": [-8.0, -10.0], "output_peak": [-60.0, -62.0]},
+        ])
+        monitor._client_ids = ["aa:bb", "cc:dd"]
+
+        assert await monitor._sample() == {
+            "available": True,
+            "signal_peak": [-7.0, -9.0], "output_peak": [-55.0, -57.0],
+        }
+
+    async def test_a_satellite_without_the_signal_peak_is_dropped(self, monitor, router):
+        """A satellite whose app predates `signal_peak` answers `output_peak`
+        alone until the server pushes it: drawn, its post-volume level would
+        pull the average down by the whole of its volume."""
+        router.get_levels = AsyncMock(side_effect=[
+            {"available": True, "output_peak": [-55.0, -55.0]},
+            {"available": True, "signal_peak": [-7.0, -7.0], "output_peak": [-52.0, -52.0]},
+        ])
+        monitor._client_ids = ["aa:bb", "cc:dd"]
+
+        assert await monitor._sample() == {
+            "available": True, "signal_peak": [-7.0, -7.0], "output_peak": [-52.0, -52.0],
         }
 
     async def test_a_client_answering_a_single_channel_is_dropped(self, monitor, router):
         """The average indexes `[0]` and `[1]`; a one-element list would raise
         inside the sampler and cost the frame for every other client too."""
         router.get_levels = AsyncMock(side_effect=[
-            {"available": True, "output_peak": [-20.0]},
-            {"available": True, "output_peak": [-30.0, -30.0]},
+            {"available": True, "signal_peak": [-20.0], "output_peak": [-20.0]},
+            {"available": True, "signal_peak": [-30.0, -30.0], "output_peak": [-30.0, -30.0]},
         ])
         monitor._client_ids = ["aa:bb", "cc:dd"]
 
         assert await monitor._sample() == {
-            "available": True, "output_peak": [-30.0, -30.0]
+            "available": True, "signal_peak": [-30.0, -30.0], "output_peak": [-30.0, -30.0]
         }
 
     async def test_a_zone_with_nothing_reachable_reads_as_the_floor(self, monitor, router):
@@ -321,7 +362,7 @@ class TestSampleClients:
         monitor._client_ids = ["aa:bb", "cc:dd"]
 
         assert await monitor._sample() == {
-            "available": False, "output_peak": list(SILENT_PEAK)
+            "available": False, "signal_peak": list(SILENT_PEAK), "output_peak": list(SILENT_PEAK)
         }
 
     async def test_an_unreachable_client_is_logged_at_debug_only(self, monitor, router, caplog):

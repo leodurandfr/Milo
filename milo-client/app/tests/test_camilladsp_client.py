@@ -206,12 +206,12 @@ class TestEachCall:
         assert daemon.sent() == {"ReadConfigFile": "/var/lib/milo-client/camilladsp/config.yml"}
 
     @pytest.mark.asyncio
-    async def test_get_playback_peak(self, daemon, client):
-        daemon.answers("GetPlaybackSignalPeak", [-12.5, -13.5])
+    async def test_get_playback_peak_since(self, daemon, client):
+        daemon.answers("GetPlaybackSignalPeakSince", [-12.5, -13.5])
 
-        assert await client.get_playback_peak() == [-12.5, -13.5]
+        assert await client.get_playback_peak_since(0.2) == [-12.5, -13.5]
 
-        assert daemon.sent() == "GetPlaybackSignalPeak"
+        assert daemon.sent() == {"GetPlaybackSignalPeakSince": 0.2}
 
     @pytest.mark.asyncio
     async def test_get_capture_peak_since_sends_the_window_as_a_float(self, daemon, client):

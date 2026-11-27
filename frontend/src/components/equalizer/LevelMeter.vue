@@ -8,14 +8,14 @@
       <div class="meter-track">
         <div
           class="meter-bar"
-          :class="{ warning: level > -6, danger: level > -3 }"
+          :class="{ warning: output > -6, danger: output > -3 }"
           :style="{ width: levelPercent + '%' }"
         ></div>
 
         <div
           v-if="showPeak"
           class="peak-indicator"
-          :class="{ warning: peakLevel > -6, danger: peakLevel > -3 }"
+          :class="{ warning: peakOutput > -6, danger: peakOutput > -3 }"
           :style="{ left: peakPercent + '%' }"
         ></div>
       </div>
@@ -32,6 +32,12 @@ const props = defineProps({
   level: {
     type: Number,
     default: -80
+  },
+  // What reaches the DAC, when `level` is read before the volume: the warning
+  // colors follow it, since only this one can clip. Null: `level` itself.
+  outputLevel: {
+    type: Number,
+    default: null
   },
   min: {
     type: Number,
@@ -61,7 +67,10 @@ const props = defineProps({
 
 // Peak hold logic
 const timer = useTimer();
+const output = computed(() => props.outputLevel ?? props.level);
 const peakLevel = ref(props.level);
+// The output level when the held peak was taken, so the hold keeps its color.
+const peakOutput = ref(output.value);
 let peakHoldTimer = null;
 let decayInterval = null;
 
@@ -72,6 +81,7 @@ const peakPercent = computed(() => dbToPercent(peakLevel.value, props.min, props
 watch(() => props.level, (newLevel) => {
   if (newLevel > peakLevel.value) {
     peakLevel.value = newLevel;
+    peakOutput.value = output.value;
 
     if (peakHoldTimer) timer.clear(peakHoldTimer);
     if (decayInterval) timer.clear(decayInterval);
@@ -82,6 +92,7 @@ watch(() => props.level, (newLevel) => {
         peakLevel.value = Math.max(props.level, peakLevel.value - props.peakDecay);
 
         if (peakLevel.value <= props.level) {
+          peakOutput.value = output.value;
           timer.clear(decayInterval);
           decayInterval = null;
         }
