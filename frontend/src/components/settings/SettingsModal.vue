@@ -341,6 +341,9 @@ const HOME_SECTIONS = [
       { view: 'volume', titleKey: 'settings.volume', icon: 'volume',
         visible: () => unifiedStore.volumeState.any_volume_control },
       { view: 'audio-playback', titleKey: 'settings.audioPlayback', icon: 'audioPlayback' },
+      // The remotes only ever drive the audio (playback, the volume step);
+      // their wiring (the IR receiver's pins) stays in Hardware.
+      { view: 'remote-controls', titleKey: 'settings.remoteControls', icon: 'remoteControls' },
       { view: 'multiroom', titleKey: 'audioSources.multiroom', icon: 'multiroom',
         visible: () => settingsStore.dockApps.multiroom },
     ],
@@ -366,9 +369,6 @@ const HOME_SECTIONS = [
     titleKey: 'settings.section.device',
     rows: [
       { view: 'network', titleKey: 'settings.network', icon: 'network' },
-      // The remotes are devices paired with the unit, like its network; their
-      // wiring (the IR receiver's pins) stays in Hardware.
-      { view: 'remote-controls', titleKey: 'settings.remoteControls', icon: 'remoteControls' },
       { view: 'updates', titleKey: 'settings.updates', icon: 'updates' },
       // What is set once, at setup, or reached for when something goes wrong
       // sits inside System: language and timezone as its second card, Hardware
