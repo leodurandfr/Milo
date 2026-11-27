@@ -637,6 +637,81 @@ async def test_a_daemon_start_records_the_crossfade_it_was_given(monkeypatch, tm
         await world.source.shutdown()
 
 
+# === The normalization switch, read like the crossfade at the daemon's start ===
+
+def normalization_pushes(world):
+    return [e["data"]["config"] for e in world.envelopes("settings", "audio_normalization_changed")]
+
+
+def store_normalization(world, on: bool) -> None:
+    """What `PUT /api/settings/audio-normalization` leaves in settings.json,
+    read by the source as the leaf and as the section (the harness's store is
+    flat)."""
+    world.settings.values["audio.normalization.spotify"] = on
+    world.settings.values["audio.normalization"] = {
+        "radio": True, "podcast": True, "cd": False, "music_library": False, "spotify": on,
+    }
+
+
+@pytest.mark.parametrize("on", [True, False])
+async def test_the_normalization_switch_reaches_config_yml_negated(world, on):
+    """go-librespot names the key the other way round (`normalisation_disabled`):
+    a switch written as is would turn the normalization off for everyone who
+    left it on."""
+    store_normalization(world, on)
+    assert await world.source.on_spotify_settings_changed(apply_now=False)
+    await world.idle()
+
+    assert yaml.safe_load(world.config_file.read_text())["normalisation_disabled"] is (not on)
+
+
+async def test_a_normalization_saved_without_apply_now_waits_for_the_next_start(world):
+    """Saved without "restart to apply", the switch reaches config.yml and
+    nothing else: the running daemon keeps the normalization it read, the
+    applied value says so — it is what keeps the page's button up — and no
+    restart cuts what plays."""
+    await world.phone_plays(PARAPLUIE)
+    playing_since = world.daemon.normalisation
+    store_normalization(world, False)
+    assert await world.source.on_spotify_settings_changed(apply_now=False)
+    await world.idle()
+
+    assert yaml.safe_load(world.config_file.read_text())["normalisation_disabled"] is True
+    assert world.restarts == []
+    assert world.playing()
+    assert world.daemon.normalisation == playing_since
+    assert world.source.normalization_applied == world.daemon.normalisation
+    assert world.source.normalization_applied is not False
+
+
+async def test_a_daemon_start_records_the_normalization_it_was_given(monkeypatch, tmp_path):
+    """The restart the page asks for makes the stored switch the daemon's, and
+    the page is told on the normalization's own event; a stop leaves no daemon
+    to have read anything."""
+    world = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    store_normalization(world, True)
+    await world.select()
+    await world.idle()
+    try:
+        assert world.source.normalization_applied == world.daemon.normalisation
+        store_normalization(world, False)
+        assert await world.source.on_spotify_settings_changed(apply_now=True)
+        await world.advance(2.1)
+        await world.idle()
+        assert world.restarts
+        assert world.daemon.normalisation is False
+        assert world.source.normalization_applied == world.daemon.normalisation
+        last = normalization_pushes(world)[-1]
+        assert last["spotify_applied"] == world.daemon.normalisation
+        assert last["spotify"] == world.settings.values["audio.normalization.spotify"]
+
+        await world.leave()
+        assert world.source.normalization_applied is None
+        assert normalization_pushes(world)[-1]["spotify_applied"] is None
+    finally:
+        await world.source.shutdown()
+
+
 # === Connections that went dead under the daemon ===
 #
 # go-librespot's lines as the unit logged them on 2026-11-05, when eth0 was cut

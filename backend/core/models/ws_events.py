@@ -529,10 +529,15 @@ class AudioResumeChanged(SettingsEvent):
 
 
 class AudioNormalizationChanged(SettingsEvent):
-    """Which sources mpv's loudness filter evens out changed; `config` is the
-    `audio_normalization` key of `GET /api/settings/bulk`.
+    """Which sources have their loudness evened out changed, or the switch the
+    running go-librespot read did; `config` is the `audio_normalization` key
+    of `GET /api/settings/bulk`.
 
     App.vue settings listener → settingsStore.updateAudioNormalization.
+
+    go-librespot reads its switch only at its start, which SpotifySource
+    announces with the same event (`spotify_applied`) — AudioPlaybackSettings.vue
+    offers "restart to apply" while it differs from the stored `spotify`.
     """
     TYPE = "audio_normalization_changed"
     config: AudioNormalizationConfig

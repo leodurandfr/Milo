@@ -29,7 +29,8 @@
       />
     </ToggleSection>
 
-    <!-- The loudness filter, switched source by source -->
+    <!-- The loudness normalization, switched source by source: mpv's filter,
+         and go-librespot's own for Spotify -->
     <SectionCard
       :title="t('audioPlayback.normalization')"
       :description="t('audioPlayback.normalizationDescription')"
@@ -47,7 +48,24 @@
       <p v-else class="none text-body-medium">{{ t('audioPlayback.appliesToNone') }}</p>
     </SectionCard>
 
-    <SettingsRefusal :detail="refusal" />
+    <!-- One sticky footer for the refusal and the restart, as on the Spotify
+         screen: two at bottom 0 would overlap. -->
+    <div class="sticky-footer">
+      <SettingsRefusal :detail="refusal" />
+      <!-- go-librespot reads Spotify's switch once, at its start: offered while
+           the running daemon read another one, and only while it runs. -->
+      <Button
+        v-if="spotifyNeedsRestart"
+        variant="brand"
+        size="medium"
+        class="restart-button" floating
+        :loading="isApplying"
+        :disabled="isApplying"
+        @click="applyNow"
+      >
+        {{ isApplying ? t('spotifySettings.restarting') : t('spotifySettings.restartToApply') }}
+      </Button>
+    </div>
   </SectionStack>
 </template>
 
@@ -56,8 +74,10 @@ import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import PLAYBACK_SETTINGS_SOURCES from '@/constants/playbackSettingsSources.json';
+import Button from '@/components/ui/Button.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
@@ -70,6 +90,7 @@ const { t, formatDuration, formatList } = useI18n();
 // stored settings coming back.
 const { updateSetting, debouncedUpdate, refusal } = useSettingsAPI();
 const settingsStore = useSettingsStore();
+const unifiedStore = useUnifiedAudioStore();
 
 // The resume window's last stop: stored as null (no limit), which a slider
 // cannot hold. Past every duration, so a stored value off the grid snaps to the
@@ -139,15 +160,45 @@ function appliesTo(setting) {
 /**
  * The sources the normalization has a switch for, among those the Dock shows,
  * in its order. Which sources have one is the stored setting's to say: its
- * keys are the sources that play through mpv.
+ * keys that name a source are the sources that play through mpv, and Spotify.
  */
 const normalizedSources = computed(() => settingsStore.sourceOrder.filter(
   source => settingsStore.dockApps[source] && source in settingsStore.audioNormalization
 ));
 
+// The switch the running go-librespot read (null while none runs): the
+// daemon's, reported by the backend, never stored — so not sent back.
+const SPOTIFY_APPLIED = 'spotify_applied';
+
+function normalizationSwitches(applyNow) {
+  const switches = Object.fromEntries(Object.entries(settingsStore.audioNormalization)
+    .filter(([key]) => key !== SPOTIFY_APPLIED));
+  return { ...switches, apply_now: applyNow };
+}
+
 function setNormalization(source, value) {
   settingsStore.updateAudioNormalization({ [source]: value });
-  debouncedUpdate('audio-normalization', 'audio-normalization', { ...settingsStore.audioNormalization }, 300);
+  debouncedUpdate('audio-normalization', 'audio-normalization', normalizationSwitches(false), 300);
+}
+
+const isApplying = ref(false);
+const spotifyNeedsRestart = computed(() => {
+  const applied = settingsStore.audioNormalization[SPOTIFY_APPLIED];
+  return unifiedStore.systemState.source === 'spotify'
+    && applied != null
+    && settingsStore.audioNormalization.spotify !== applied;
+});
+
+// The only restart of go-librespot this page asks for: a switch is saved for
+// the daemon's next start, and restarting cuts what plays.
+async function applyNow() {
+  if (isApplying.value) return;
+  isApplying.value = true;
+  try {
+    await updateSetting('audio-normalization', normalizationSwitches(true));
+  } finally {
+    isApplying.value = false;
+  }
 }
 
 const durationSteps = (values) => values.map(value => ({ value, label: formatDuration(value) }));
@@ -170,6 +221,23 @@ const resumeSteps = computed(() => [
 .none {
   color: var(--color-text-secondary);
   margin: 0;
+}
+
+.sticky-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.sticky-footer:empty {
+  display: none;
+}
+
+.restart-button {
+  width: 100%;
 }
 
 @media (max-aspect-ratio: 4/3) and (max-width: 1023px) {

@@ -67,17 +67,25 @@ class AudioResumeConfig(BaseModel):
 
 
 class AudioNormalizationConfig(BaseModel):
-    """Whether mpv's loudness filter evens out what each mpv source plays.
+    """Whether the loudness is evened out from one item to the next, per source.
 
-    One switch per source that plays through mpv: the four sources are the
-    keys of `SettingsService.defaults["audio"]["normalization"]`, held equal
-    to these fields and to the MpvAudioSource subclasses by
+    One switch per source that plays through mpv (its loudness filter), plus
+    Spotify (go-librespot's own normalization): the keys of
+    `SettingsService.defaults["audio"]["normalization"]`, held equal to these
+    fields, to the MpvAudioSource subclasses and to SpotifySource by
     `tests/architecture/test_audio_normalization.py`.
+
+    go-librespot reads its switch once, at its start, so `spotify_applied` is
+    the one the running daemon read (None while none runs) — the daemon's,
+    never stored: SpotifySource reports it. The settings page offers "restart
+    to apply" while it differs from `spotify`, as it does for the crossfade.
     """
     radio: bool
     podcast: bool
     cd: bool
     music_library: bool
+    spotify: bool
+    spotify_applied: Optional[bool]
 
 
 class ScreenTimeoutConfig(BaseModel):

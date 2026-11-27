@@ -373,7 +373,7 @@ How long a source left with something to resume keeps it changed.
 
 ### settings/audio_normalization_changed
 
-Which sources mpv's loudness filter evens out changed; `config` is the `audio_normalization` key of `GET /api/settings/bulk`.
+Which sources have their loudness evened out changed, or the switch the running go-librespot read did; `config` is the `audio_normalization` key of `GET /api/settings/bulk`.
 
 | Field | Type |
 |---|---|
@@ -954,7 +954,7 @@ A file Milō could not read: it was set aside and what it held started again fro
 
 ### AudioNormalizationConfig
 
-Whether mpv's loudness filter evens out what each mpv source plays.
+Whether the loudness is evened out from one item to the next, per source.
 
 | Field | Type |
 |---|---|
@@ -962,6 +962,8 @@ Whether mpv's loudness filter evens out what each mpv source plays.
 | `podcast` | boolean |
 | `cd` | boolean |
 | `music_library` | boolean |
+| `spotify` | boolean |
+| `spotify_applied` | boolean \| null |
 
 ### ScreenTimeoutConfig
 

@@ -122,8 +122,10 @@ library (library.py), its shaping (catalog.py) and the kept profiles
 (profiles.py).
 """
 import asyncio
-from backend.core.models.settings_config import SpotifySettingsConfig
-from backend.core.models.ws_events import SourceErrorReason, SpotifyProfilesChanged, SpotifySettingsChanged
+from backend.core.models.settings_config import AudioNormalizationConfig, SpotifySettingsConfig
+from backend.core.models.ws_events import (
+    AudioNormalizationChanged, SourceErrorReason, SpotifyProfilesChanged, SpotifySettingsChanged,
+)
 import contextlib
 import json
 import os
@@ -537,9 +539,9 @@ class SpotifySource(BaseAudioSource):
     )
     SESSION_DAEMON = True
 
-    # The five go-librespot config keys Milō owns: crossfade_duration (from
-    # settings), external_volume, credentials, metadata and search (constant,
-    # MANAGED_CONSTANT_CONFIG below).
+    # The six go-librespot config keys Milō owns: crossfade_duration and
+    # normalisation_disabled (from settings), external_volume, credentials,
+    # metadata and search (constant, MANAGED_CONSTANT_CONFIG below).
     # Every other key in config.yml (device_name, zeroconf_backend, server) is
     # written once by provisioning/go-librespot.sh and never touched here.
     #
@@ -550,6 +552,15 @@ class SpotifySource(BaseAudioSource):
     # implementation" (measured on the unit, 2026-08-03). It is a fatal
     # misconfiguration, not an inert flag: enabling it costs Spotify entirely.
     CROSSFADE_SETTINGS_KEY = "spotify.crossfade_duration"
+    # Whether go-librespot evens out the loudness from one track to the next
+    # (Spotify's track gain), the Spotify switch of Settings › Audio playback's
+    # normalization. Written as config.yml's `normalisation_disabled`, its
+    # negation: go-librespot 0.10.7 declares it false by default and passes
+    # `NormalisationEnabled: !NormalisationDisabled` to its player once, at
+    # the daemon's start — so, like the crossfade, it takes a restart.
+    # Album gain and pregain are left at upstream's defaults, never written.
+    NORMALIZATION_SETTINGS_KEY = "audio.normalization.spotify"
+    NORMALIZATION_CONFIG_KEY = "normalisation_disabled"
     # Whether the Spotify app's slider and Milō's volume are one level, as an
     # AirPlay sender's are: the slider moves Milō's volume, and Milō's volume —
     # whoever moved it — moves the slider. go-librespot never scales the
@@ -690,12 +701,14 @@ class SpotifySource(BaseAudioSource):
         # The daemon runs already restarted because a track load went
         # unanswered: a late line from one of them restarts nothing.
         self._recovered_runs: Set[str] = set()
-        # The crossfade config.yml carries (None: unknown), and the one the
-        # running daemon read at its start (None: no daemon this source
-        # started). They differ while a crossfade saved without "restart to
-        # apply" waits for the next start.
+        # The crossfade and the normalization config.yml carries (None:
+        # unknown), and the ones the running daemon read at its start (None:
+        # no daemon this source started). They differ while a value saved
+        # without "restart to apply" waits for the next start.
         self._config_crossfade: Optional[int] = None
         self._crossfade_applied: Optional[int] = None
+        self._config_normalization: Optional[bool] = None
+        self._normalization_applied: Optional[bool] = None
         self._signing_in = False
         self._signin_restarted = False
         self._shuffle = False
@@ -820,6 +833,15 @@ class SpotifySource(BaseAudioSource):
         """
         return self._crossfade_applied
 
+    @property
+    def normalization_applied(self) -> Optional[bool]:
+        """Whether the running daemon evens out the loudness, as it read it at
+        its start, or None when this source has not started one. Settings ›
+        Audio playback offers "restart to apply" while the stored switch
+        differs from it — with the same lag as `crossfade_applied_duration`
+        after a start Milō did not ask for."""
+        return self._normalization_applied
+
     async def initialize(self) -> bool:
         """Load the profiles and the history. An unreadable file of either is
         set aside and starts empty, and never keeps the source from starting."""
@@ -910,38 +932,47 @@ class SpotifySource(BaseAudioSource):
         return await self._stop_service()
 
     async def _start_service(self, service_name: str = None) -> bool:
-        """Every start of go-librespot reads config.yml: the crossfade it
-        carries is the one playing from now on."""
+        """Every start of go-librespot reads config.yml: the crossfade and the
+        normalization it carries are the ones playing from now on."""
         started = await super()._start_service(service_name)
         if started:
-            await self._crossfade_applied_is(self._config_crossfade)
+            await self._applied_are(self._config_crossfade, self._config_normalization)
         return started
 
     async def _restart_service(self, service_name: str = None) -> bool:
         restarted = await super()._restart_service(service_name)
         if restarted:
-            await self._crossfade_applied_is(self._config_crossfade)
+            await self._applied_are(self._config_crossfade, self._config_normalization)
         return restarted
 
     async def _stop_service(self, service_name: str = None) -> bool:
         stopped = await super()._stop_service(service_name)
         if stopped:
-            await self._crossfade_applied_is(None)
+            await self._applied_are(None, None)
         return stopped
 
-    async def _crossfade_applied_is(self, crossfade: Optional[int]) -> None:
-        """Record the crossfade the daemon plays with, and tell the settings
-        page when it moved: nothing else says a start made a saved crossfade
-        audible."""
-        if crossfade == self._crossfade_applied:
-            return
+    async def _applied_are(self, crossfade: Optional[int], normalization: Optional[bool]) -> None:
+        """Record the crossfade and the normalization the daemon plays with,
+        and tell the settings pages when one moved: nothing else says a start
+        made a saved value audible."""
+        crossfade_moved = crossfade != self._crossfade_applied
+        normalization_moved = normalization != self._normalization_applied
         self._crossfade_applied = crossfade
-        if self.state_machine:
+        self._normalization_applied = normalization
+        if not self.state_machine:
+            return
+        if crossfade_moved:
             await self.state_machine.broadcast(SpotifySettingsChanged(config=SpotifySettingsConfig(
                 crossfade_duration=await self._get_crossfade_duration(),
                 allow_app_volume=await self._get_allow_app_volume(),
                 crossfade_applied_duration=crossfade,
             )))
+        if normalization_moved and self._settings_service:
+            stored = await self._settings_service.get_setting("audio.normalization")
+            if isinstance(stored, dict):
+                await self.state_machine.broadcast(AudioNormalizationChanged(
+                    config=AudioNormalizationConfig(**stored, spotify_applied=normalization),
+                ))
 
     async def _request_end(self, session: Session) -> bool:
         """REQUEST_END: POST /player/stop. The `inactive` that follows (3 ms,
@@ -1401,10 +1432,10 @@ class SpotifySource(BaseAudioSource):
         go-librespot parses its config once, at process start, so this runs from
         _do_start() before the unit is launched: whatever the settings page
         stored in the meantime is live on the next start, and there is no reload
-        path to maintain. Only the five keys Milō owns are touched (crossfade from
-        settings, external_volume, credentials, metadata and search constant); a
-        start that would change nothing leaves the file alone, so the daemon
-        never reads a file rewritten for nothing.
+        path to maintain. Only the six keys Milō owns are touched (crossfade and
+        normalisation_disabled from settings, external_volume, credentials,
+        metadata and search constant); a start that would change nothing leaves
+        the file alone, so the daemon never reads a file rewritten for nothing.
 
         Rewriting drops the baked comments from the deployed copy — their
         rationale lives in provisioning/go-librespot.sh, which is where it is read.
@@ -1417,6 +1448,7 @@ class SpotifySource(BaseAudioSource):
 
         managed = {
             "crossfade_duration": await self._get_crossfade_duration(),
+            self.NORMALIZATION_CONFIG_KEY: not await self._get_normalization(),
             **self.MANAGED_CONSTANT_CONFIG,
         }
 
@@ -1424,6 +1456,8 @@ class SpotifySource(BaseAudioSource):
             async with aiofiles.open(self._config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(await f.read()) or {}
             self._config_crossfade = config.get("crossfade_duration")
+            # No key is go-librespot's default: normalization on.
+            self._config_normalization = not config.get(self.NORMALIZATION_CONFIG_KEY, False)
 
             if all(config.get(key) == value for key, value in managed.items()):
                 return
@@ -1431,6 +1465,7 @@ class SpotifySource(BaseAudioSource):
             config.update(managed)
             await self._write_config(config)
             self._config_crossfade = managed["crossfade_duration"]
+            self._config_normalization = not managed[self.NORMALIZATION_CONFIG_KEY]
             self._logger.info(f"go-librespot config updated: {managed}")
 
         except Exception as e:
@@ -1447,6 +1482,16 @@ class SpotifySource(BaseAudioSource):
 
         value = await self._settings_service.get_setting(self.CROSSFADE_SETTINGS_KEY)
         return int(value) if value is not None else 0
+
+    async def _get_normalization(self) -> bool:
+        """Whether the stored switch has go-librespot even out the loudness;
+        True when unreadable — go-librespot's own default, what it does with
+        no key at all, so an unreadable setting changes nothing it did."""
+        if not self._settings_service:
+            return True
+
+        value = await self._settings_service.get_setting(self.NORMALIZATION_SETTINGS_KEY)
+        return bool(value) if value is not None else True
 
     async def _get_allow_app_volume(self) -> bool:
         """Whether the Spotify app's slider is one level with Milō's volume;
@@ -1475,8 +1520,10 @@ class SpotifySource(BaseAudioSource):
         it; the value stays in the settings and _do_start writes it before the
         next launch, so the value always reaches config.yml by the next daemon
         start whatever happens here. `apply_now` additionally restarts the unit
-        — what the settings page's "restart to apply" button asks for, and the
-        only way to change crossfade on a running daemon. The app volume needs
+        — what the settings pages' "restart to apply" button asks for, and the
+        only way to change the crossfade or the normalization on a running
+        daemon (the Spotify settings route and the normalization route both
+        come here; neither restarts without it). The app volume needs
         none: it is Milō's to follow, and a running daemon follows it at once.
 
         A stopped daemon is left stopped: `systemctl restart` on an inactive

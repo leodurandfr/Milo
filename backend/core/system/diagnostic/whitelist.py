@@ -93,6 +93,7 @@ SETTINGS_ALLOWED = frozenset({
     "audio.normalization.podcast",
     "audio.normalization.cd",
     "audio.normalization.music_library",
+    "audio.normalization.spotify",
     "routing.multiroom_enabled",
     "routing.equalizer_effects_enabled",
     "dock.enabled_apps",

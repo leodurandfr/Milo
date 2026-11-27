@@ -927,6 +927,26 @@ class TestManagedConfig:
         assert Path(spotify_source._config_path).read_text() == first
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("on", [True, False])
+    async def test_a_config_that_already_agrees_is_not_rewritten(self, spotify_source, on):
+        """A start that changes nothing leaves config.yml alone — the file
+        itself, not just its bytes: the normalization switch is held to the
+        same agreement as the crossfade, so a switch that reads as "changed"
+        at every start (written as is rather than negated) rewrites the file
+        each time."""
+        stored = {"spotify.crossfade_duration": 0, "audio.normalization.spotify": on}
+        spotify_source._settings_service = Mock()
+        spotify_source._settings_service.get_setting = AsyncMock(side_effect=stored.get)
+        await spotify_source._apply_managed_config()
+        path = Path(spotify_source._config_path)
+        assert self._read(path)["normalisation_disabled"] is (not on)
+        written = path.stat().st_ino
+
+        await spotify_source._apply_managed_config()
+
+        assert path.stat().st_ino == written
+
+    @pytest.mark.asyncio
     async def test_missing_config_file_does_not_raise(self):
         """Fails open: no config to patch must not block Spotify from starting."""
         source = SpotifySource({"config_path": "/nonexistent/config.yml"})

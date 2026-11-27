@@ -24,9 +24,10 @@ configure_go_librespot() {
     # broadcasts on every interface — racing Avahi and causing the milo.local
     # → milo-2.local rename whenever wlan0's DHCP lease rolls over.
     #
-    # crossfade_duration, external_volume, credentials, metadata and search are
-    # absent on purpose: SpotifySource writes them before every daemon start
-    # (the first two are settings, the next two keep the cast account stored
+    # crossfade_duration, normalisation_disabled, external_volume, credentials,
+    # metadata and search are absent on purpose: SpotifySource writes them
+    # before every daemon start (the first two are settings, external_volume
+    # keeps the samples at unity, the next two keep the cast account stored
     # and the listing cache on, the last turns the catalog search on).
     tee "$MILO_DATA_DIR/go-librespot/config.yml" > /dev/null << 'EOF'
 device_name: "Milō"

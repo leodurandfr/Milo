@@ -268,14 +268,16 @@ class TestSettingsService:
         )
 
     def test_validate_and_merge_normalization_keeps_one_switch_per_declared_source(self, service):
-        """Every mpv source reads `audio.normalization.<source>` before each
-        load: a switch the file lost answers None there, which plays
-        unfiltered whatever the default says. A switch nobody declares is
-        dropped rather than kept."""
+        """Every source with a switch reads `audio.normalization.<source>`
+        (an mpv source before each load, Spotify before each daemon start): a
+        switch the file lost answers None there, which an mpv source plays
+        unfiltered and Spotify reads as go-librespot's default (on), whatever
+        the declared default says. A switch nobody declares is dropped rather
+        than kept."""
         defaults = service.defaults['audio']['normalization']
         some = next(iter(defaults))
         merged = service._validate_and_merge(
-            {'audio': {'normalization': {some: not defaults[some], 'spotify': True}}}
+            {'audio': {'normalization': {some: not defaults[some], 'tidal': True}}}
         )['audio']['normalization']
         assert merged == {**defaults, some: not defaults[some]}
 

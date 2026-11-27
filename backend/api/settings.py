@@ -221,6 +221,12 @@ def create_settings_router(
         source = state_machine.get_source(AudioSource.SPOTIFY)
         return source.crossfade_applied_duration if source else None
 
+    def _spotify_normalization_applied() -> Optional[bool]:
+        """The normalization switch the running go-librespot read — like the
+        crossfade, the daemon's, asked of the source (None with no source)."""
+        source = state_machine.get_source(AudioSource.SPOTIFY)
+        return source.normalization_applied if source else None
+
     # Bulk settings (all categories in one response)
     @router.get("/bulk", response_model=BulkSettingsResponse, openapi_extra=CONTRACTED)
     async def get_bulk_settings():
@@ -261,7 +267,10 @@ def create_settings_router(
             "dock_volume": all_settings['dock']['volume'],
             "audio_stop": {"auto_stop_delay": all_settings['audio']['auto_stop_delay']},
             "audio_resume": {"resume_window": all_settings['audio']['resume_window']},
-            "audio_normalization": all_settings['audio']['normalization'],
+            "audio_normalization": {
+                **all_settings['audio']['normalization'],
+                "spotify_applied": _spotify_normalization_applied(),
+            },
             "screen_timeout": {
                 "screen_timeout_enabled": timeout_seconds != 0,
                 "screen_timeout_seconds": timeout_seconds
@@ -636,25 +645,40 @@ def create_settings_router(
             ),
         )
 
-    # Which mpv sources the loudness filter evens out. Applied to the mpv each
-    # one runs now, and read again by every load after.
+    # Which sources have their loudness evened out. An mpv source's switch is
+    # applied to the mpv it runs now, and read again by every load after;
+    # Spotify's is written into go-librespot's config.yml, which the daemon
+    # reads at its next start — or now, through the same path as the
+    # crossfade, when the page's "restart to apply" sends `apply_now`.
     @router.put("/audio-normalization")
     async def set_audio_normalization(payload: AudioNormalizationRequest):
         async def reapply() -> bool:
-            # Every source the setting names, started or not: one that is not
-            # has no mpv and applies it at its next load.
+            # Every source the setting names, started or not: an mpv source
+            # that is not has no mpv and applies it at its next load.
             applied = True
             for source_id in await settings.get_setting('audio.normalization'):
                 source = state_machine.get_source(AudioSource(source_id))
-                if source is not None and not await source.reload_normalization():
+                if source is None:
+                    continue
+                if source_id == AudioSource.SPOTIFY.value:
+                    took = await source.on_spotify_settings_changed(payload.apply_now)
+                else:
+                    took = await source.reload_normalization()
+                if not took:
                     applied = False
             return applied
 
+        # Built after the reload, so an apply_now carries the switch the
+        # restarted daemon read.
         return await _handle_setting_update(
-            setter=lambda: settings.set_setting('audio.normalization', payload.model_dump()),
+            setter=lambda: settings.set_setting(
+                'audio.normalization', payload.model_dump(exclude={"apply_now"}),
+            ),
             section='audio',
             build_event=lambda audio: AudioNormalizationChanged(
-                config=AudioNormalizationConfig(**audio['normalization'])
+                config=AudioNormalizationConfig(
+                    **audio['normalization'], spotify_applied=_spotify_normalization_applied(),
+                )
             ),
             reload_callback=reapply,
         )

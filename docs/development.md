@@ -325,8 +325,11 @@ loudness-normalization switch, applied by the base before each load: an `audio.n
 default in `SettingsService.defaults`, a field in `AudioNormalizationConfig`
 (`core/models/settings_config.py`) and in `AudioNormalizationRequest` (`api/models.py`), the
 placeholder key in `frontend/src/stores/settingsStore.js`, and the `SETTINGS_ALLOWED` path in
-`core/system/diagnostic/whitelist.py`. The default and the two models are held equal to the
-`MpvAudioSource` subclasses by `tests/architecture/test_audio_normalization.py`.
+`core/system/diagnostic/whitelist.py`. The one switch that is not mpv's is Spotify's, which
+`SpotifySource` writes into go-librespot's config.yml (`normalisation_disabled`, negated) and the
+daemon reads at its start, hence its `spotify_applied` twin and "restart to apply". The default
+and the two models are held equal to the `MpvAudioSource` subclasses plus `SpotifySource` by
+`tests/architecture/test_audio_normalization.py`.
 
 **If a daemon holds the session** (a sender on shairport-sync, a phone on go-librespot or on the
 Tidal daemon, an app on qobuz-proxy, the Macs on roc-recv, a device on BlueALSA), Milō does not

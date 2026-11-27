@@ -94,14 +94,19 @@ export const useSettingsStore = defineStore('settings', () => {
     resume_window: 600.0
   });
 
-  // Whether mpv's loudness filter evens out what each mpv source plays:
-  // {source: bool}, one key per source that plays through mpv. The settings
-  // page lists the keys /bulk sends.
+  // Whether the loudness is evened out from one item to the next: {source:
+  // bool}, one key per source that plays through mpv, plus spotify (written
+  // into go-librespot's config). The settings page lists the keys /bulk sends
+  // that name a source. go-librespot reads its switch once at start:
+  // `spotify_applied` is the one the running daemon read (null while none
+  // runs), and the page offers "restart to apply" while it differs.
   const audioNormalization = ref({
     radio: true,
     podcast: true,
     cd: false,
-    music_library: false
+    music_library: false,
+    spotify: true,
+    spotify_applied: null
   });
 
   // === RADIO ===

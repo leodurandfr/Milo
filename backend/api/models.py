@@ -367,12 +367,20 @@ class AudioResumeRequest(StrictModel):
 
 
 class AudioNormalizationRequest(StrictModel):
-    """Whether mpv's loudness filter evens out what each mpv source plays:
-    one switch per source, all four sent together."""
+    """Whether the loudness is evened out from one item to the next: one
+    switch per source, all five sent together.
+
+    `apply_now` is request-only, as on SpotifySettingsRequest: True restarts
+    go-librespot so the Spotify switch takes effect at once (the settings
+    page's "restart to apply"); False stores it for the daemon's next start.
+    The mpv sources take theirs at once either way.
+    """
     radio: bool
     podcast: bool
     cd: bool
     music_library: bool
+    spotify: bool
+    apply_now: bool = False
 
 
 # =============================================================================

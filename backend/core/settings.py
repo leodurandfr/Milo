@@ -120,15 +120,20 @@ class SettingsService:
                 # (seconds); 0 keeps nothing past the departure, null keeps it
                 # for good.
                 "resume_window": 600.0,
-                # Whether mpv's loudness filter evens out what each mpv source
-                # plays, per source (MpvAudioSource applies it). On where the
-                # level jumps from one station or show to the next; off where
-                # the record is played as it was mastered.
+                # Whether the loudness is evened out from one item to the next,
+                # per source: mpv's loudness filter for each mpv source
+                # (MpvAudioSource applies it), go-librespot's own normalization
+                # for Spotify (SpotifySource writes it into config.yml, read at
+                # the daemon's start). On where the level jumps from one
+                # station, show or track to the next; off where the record is
+                # played as it was mastered. Spotify on is what go-librespot
+                # does with no key at all (`normalisation_disabled` false).
                 "normalization": {
                     "radio": True,
                     "podcast": True,
                     "cd": False,
                     "music_library": False,
+                    "spotify": True,
                 },
             },
             "routing": {

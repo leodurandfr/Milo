@@ -275,6 +275,10 @@ class Librespot:
         self.account: Optional[str] = None
         self.stored: Optional[str] = None   # the account whose credentials state.json holds
         self.crossfade: Optional[int] = None   # config.yml's crossfade_duration, read at start
+        # Whether the player normalizes (config.yml's normalisation_disabled,
+        # negated, absent = on), read at start: go-librespot 0.10.7's
+        # NewPlayer takes it once.
+        self.normalisation: Optional[bool] = None
         self.signed_in = False          # signed in with no session (stored credentials)
         self.signin_hangs = False       # a sign-in that never completes (seen once, unreproduced)
         self.context: Optional[Tuple[str, str]] = None   # (uri, name) of what plays
@@ -1088,7 +1092,9 @@ class SpotifyWorld(WireReader):
         self.runs.append(self.invocation)
         self.unit_state = ("active", "success")
         self.daemon.stored = self.stored_account()   # go-librespot reads state.json at start
-        self.daemon.crossfade = yaml.safe_load(self.config_file.read_text()).get("crossfade_duration")   # and config.yml
+        config = yaml.safe_load(self.config_file.read_text())   # and config.yml
+        self.daemon.crossfade = config.get("crossfade_duration")
+        self.daemon.normalisation = not config.get("normalisation_disabled", False)
         self.daemon.comes_up()
 
     def _die(self) -> None:

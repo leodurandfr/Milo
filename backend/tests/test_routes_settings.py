@@ -439,36 +439,61 @@ class TestSettingsRoutes:
     # AUDIO NORMALIZATION
     # ===================
 
-    NORMALIZATION_BODY = {"radio": False, "podcast": True, "cd": True, "music_library": False}
+    NORMALIZATION_BODY = {"radio": False, "podcast": True, "cd": True, "music_library": False,
+                          "spotify": False}
 
-    def test_set_audio_normalization_reaches_each_source_after_the_write(self, client):
-        """Each source sets its mpv from settings.json, so it must be told
-        once the value is stored, not before — a reload read ahead of the
-        write would put the old filter back in a running mpv."""
-        stored_when_told = {}
+    @staticmethod
+    def _normalization_sources(client, told=None, spotify_took=True):
+        """One source per switch, the way each one takes it: an mpv source
+        reloads its mpv, Spotify rewrites go-librespot's config (and restarts
+        it only when asked). `told` records the stored switch each one read
+        when it was told."""
         sources = {}
 
         def source_for(audio_source):
-            async def reload():
-                stored_when_told[audio_source.value] = await client._mock_settings.get_setting(
-                    f"audio.normalization.{audio_source.value}")
-                return True
-            sources[audio_source.value] = Mock(reload_normalization=AsyncMock(side_effect=reload))
-            return sources[audio_source.value]
+            if audio_source.value in sources:
+                return sources[audio_source.value]
+
+            async def read_stored(*_):
+                if told is not None:
+                    told[audio_source.value] = await client._mock_settings.get_setting(
+                        f"audio.normalization.{audio_source.value}")
+                return spotify_took if audio_source is AudioSource.SPOTIFY else True
+
+            if audio_source is AudioSource.SPOTIFY:
+                source = Mock(on_spotify_settings_changed=AsyncMock(side_effect=read_stored),
+                              normalization_applied=True)
+            else:
+                source = Mock(reload_normalization=AsyncMock(side_effect=read_stored))
+            sources[audio_source.value] = source
+            return source
 
         client._mock_state_machine.get_source = Mock(side_effect=source_for)
+        return sources
+
+    def test_set_audio_normalization_reaches_each_source_after_the_write(self, client):
+        """Each source takes its switch from settings.json, so it must be told
+        once the value is stored, not before — a reload read ahead of the
+        write would put the old filter back in a running mpv, or the old key
+        in go-librespot's config."""
+        told = {}
+        sources = self._normalization_sources(client, told)
         response = client.put("/api/settings/audio-normalization", json=self.NORMALIZATION_BODY)
 
         assert response.status_code == 200
         assert response.json()["reload_success"] is True
-        assert stored_when_told == self.NORMALIZATION_BODY
+        assert told == self.NORMALIZATION_BODY
         event = client._mock_state_machine.broadcast.await_args.args[0]
         assert event.TYPE == "audio_normalization_changed"
-        assert event.config.model_dump() == self.NORMALIZATION_BODY
+        assert event.config.model_dump() == {
+            **self.NORMALIZATION_BODY, "spotify_applied": sources["spotify"].normalization_applied,
+        }
 
     def test_set_audio_normalization_reports_a_source_whose_mpv_refused(self, client):
         refused = Mock(reload_normalization=AsyncMock(return_value=False))
-        took = Mock(reload_normalization=AsyncMock(return_value=True))
+        took = Mock(reload_normalization=AsyncMock(return_value=True),
+                    on_spotify_settings_changed=AsyncMock(return_value=True),
+                    normalization_applied=True)
         client._mock_state_machine.get_source = Mock(
             side_effect=lambda source: refused if source is AudioSource.CD else took)
 
@@ -478,9 +503,47 @@ class TestSettingsRoutes:
         assert response.json()["reload_success"] is False
         refused.reload_normalization.assert_awaited_once()
 
+    @pytest.mark.parametrize("apply_now", [False, True])
+    def test_set_audio_normalization_restarts_spotify_only_when_asked(self, client, apply_now):
+        """Spotify's switch takes a go-librespot restart, which cuts what
+        plays: a save hands the source the page's `apply_now` and nothing
+        else, and the stored section never holds the action."""
+        sources = self._normalization_sources(client)
+        body = {**self.NORMALIZATION_BODY, "apply_now": apply_now}
+
+        response = client.put("/api/settings/audio-normalization", json=body)
+
+        assert response.status_code == 200
+        sources["spotify"].on_spotify_settings_changed.assert_awaited_once_with(apply_now)
+        stored = client._mock_settings.set_setting.await_args.args
+        assert stored[0] == "audio.normalization"
+        assert "apply_now" not in stored[1]
+
+    def test_set_audio_normalization_carries_the_switch_the_restart_applied(self, client):
+        """"Restart to apply" disappears once the restarted daemon reads the
+        stored switch: the answer and the event are built after the restart,
+        from the source."""
+        spotify = Mock(normalization_applied=True)
+
+        async def restart(apply_now):
+            spotify.normalization_applied = not apply_now
+            return True
+
+        spotify.on_spotify_settings_changed = AsyncMock(side_effect=restart)
+        mpv = Mock(reload_normalization=AsyncMock(return_value=True))
+        client._mock_state_machine.get_source = Mock(
+            side_effect=lambda source: spotify if source is AudioSource.SPOTIFY else mpv)
+
+        response = client.put("/api/settings/audio-normalization",
+                              json={**self.NORMALIZATION_BODY, "apply_now": True})
+
+        assert response.json()["config"]["spotify_applied"] == spotify.normalization_applied
+        event = client._mock_state_machine.broadcast.await_args.args[0]
+        assert event.config.spotify_applied == spotify.normalization_applied
+
     def test_set_audio_normalization_refuses_a_source_it_does_not_know(self, client):
         response = client.put("/api/settings/audio-normalization",
-                              json={**self.NORMALIZATION_BODY, "spotify": True})
+                              json={**self.NORMALIZATION_BODY, "tidal": True})
         assert response.status_code == 422
 
     # ===================
@@ -1209,6 +1272,11 @@ class TestBulkSettings:
         ("dock_volume", "phone_browser"): ("dock", "volume", "phone_browser"),
         ("dock_volume", "ios_app"): ("dock", "volume", "ios_app"),
         ("audio_stop", "auto_stop_delay"): ("audio", "auto_stop_delay"),
+        ("audio_normalization", "radio"): ("audio", "normalization", "radio"),
+        ("audio_normalization", "podcast"): ("audio", "normalization", "podcast"),
+        ("audio_normalization", "cd"): ("audio", "normalization", "cd"),
+        ("audio_normalization", "music_library"): ("audio", "normalization", "music_library"),
+        ("audio_normalization", "spotify"): ("audio", "normalization", "spotify"),
         ("screen_timeout", "screen_timeout_seconds"): ("screen", "timeout_seconds"),
         ("screen_brightness", "brightness_on"): ("screen", "brightness_on"),
         ("screen_ui_scale", "ui_scale"): ("screen", "ui_scale"),
@@ -1372,10 +1440,25 @@ class TestBulkSettings:
         assert self._client(stored).get("/api/settings/bulk").json()["spotify_settings"][
             "crossfade_applied_duration"
         ] is None
-        spotify = Mock(crossfade_applied_duration=0)
+        spotify = Mock(crossfade_applied_duration=0, normalization_applied=True)
         assert self._client(stored, spotify).get("/api/settings/bulk").json()["spotify_settings"][
             "crossfade_applied_duration"
         ] == spotify.crossfade_applied_duration
+
+    def test_bulk_reads_the_applied_normalization_off_the_spotify_source(self):
+        """`spotify_applied` is the crossfade's twin: the switch the running
+        go-librespot read, which only the source knows. Read from the stored
+        switch, it would hide "restart to apply" on every reopen of the page."""
+        stored = self._stored()
+        stored["audio"]["normalization"]["spotify"] = False
+
+        assert self._client(stored).get("/api/settings/bulk").json()["audio_normalization"][
+            "spotify_applied"
+        ] is None
+        spotify = Mock(crossfade_applied_duration=0, normalization_applied=True)
+        served = self._client(stored, spotify).get("/api/settings/bulk").json()["audio_normalization"]
+        assert served["spotify_applied"] == spotify.normalization_applied
+        assert served["spotify"] == stored["audio"]["normalization"]["spotify"]
 
     def test_bulk_fails_loud_on_a_section_the_validator_stopped_emitting(self):
         """The designed behaviour, and the reason no fallback may be added here:
