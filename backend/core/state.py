@@ -46,6 +46,7 @@ from backend.core.models.ws_events import (
 from backend.core.audio_source import BaseAudioSource
 from backend.shared.clock_step import WallClockStepWatch
 from backend.shared.decorators import handle_errors
+from backend.shared import timing
 
 logger = logging.getLogger(__name__)
 
@@ -543,6 +544,14 @@ class AudioStateMachine:
         # user's retry, queued on the lock — starts over a source still
         # letting go of the device.
         teardown: Optional[asyncio.Task] = None
+        # The transition lock taken (the caller holds it, so the wait of a
+        # transition queued behind another is not counted) → the final
+        # publish, for a transition that succeeds; a failed one says so on its
+        # own (`Transition failed`).
+        timer = timing.start(
+            "source.transition",
+            f"{self.system_state.active_source.value} -> {target_source.value}",
+        )
 
         try:
             async with asyncio.timeout(self.TRANSITION_TIMEOUT) as budget:
@@ -591,6 +600,7 @@ class AudioStateMachine:
                     self.system_state.view = source.view if source else SourceView()
 
                 await self.publish_state()
+                timer.stop()
 
                 # The one place the two axes are worth recording: a source
                 # that started fine and still cannot work. Without it, "the
@@ -608,6 +618,7 @@ class AudioStateMachine:
                 return True
 
         except Exception as e:
+            timer.cancel()
             # A timeout only earns its own reason; both failures settle
             # identically (asyncio.TimeoutError is a builtin Exception).
             if isinstance(e, asyncio.TimeoutError):
@@ -625,8 +636,12 @@ class AudioStateMachine:
             # second user-facing report of one failure — the state already
             # says `service: failed`, and the card offers the retry.
             # errors.log and the journal keep WARNING and above.
+            # The target first: a failed transition leaves it selected, and
+            # the logs page reads which source was then from this line
+            # (core/system/logs/service.py::_source_state_at).
             logger.warning(
-                "Transition failed: %s%s",
+                "Transition failed: %s: %s%s",
+                target_source.value,
                 error.message,
                 f" (link is {blocked})" if blocked else "",
             )

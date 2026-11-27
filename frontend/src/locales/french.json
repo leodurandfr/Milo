@@ -1033,6 +1033,11 @@
       "hidePreview": "Masquer le rapport",
       "notCollected": "N'a pas pu être collecté :"
     },
+    "logs": {
+      "title": "Journaux",
+      "description": "Ce que Milō et ses enceintes ont enregistré récemment, regroupé et consultable. Les noms de réseau, de partage et d'enceinte sont remplacés : la page peut être partagée.",
+      "open": "Ouvrir les journaux"
+    },
     "licenses": {
       "title": "Licences tierces",
       "description": "Les programmes sur lesquels Milō repose, avec leur version et leur licence, et la manière d'obtenir le code source que ces licences prévoient.",
@@ -1044,6 +1049,33 @@
       "action": "Réinitialiser",
       "confirm": "Confirmer la réinitialisation ?",
       "running": "Redémarrage…"
+    }
+  },
+  "logs": {
+    "refresh": "Relire les journaux",
+    "search": "Rechercher dans les journaux",
+    "readFailed": "Les journaux n'ont pas pu être lus.",
+    "truncated": "Les lignes du journal antérieures à {time} ne sont pas incluses : la période en contient plus qu'une lecture n'en renvoie.",
+    "empty": "Aucune ligne ne correspond à ces filtres.",
+    "count": "×{count}",
+    "firstSeen": "Vu pour la première fois {time}",
+    "contextFailed": "Les lignes autour de celle-ci n'ont pas pu être lues.",
+    "copy": "Copier pour correction",
+    "copied": "Copié pour correction",
+    "copyFailed": "La copie a échoué. Sélectionnez les lignes et copiez-les à la main.",
+    "more": "{shown} événements affichés sur {total}. Affinez les filtres pour voir le reste.",
+    "allServices": "Tous les services",
+    "severity": {
+      "all": "Toutes les gravités",
+      "warning": "Avertissements et erreurs",
+      "error": "Erreurs uniquement"
+    },
+    "levels": {
+      "debug": "Débogage",
+      "info": "Info",
+      "warning": "Avertissement",
+      "error": "Erreur",
+      "critical": "Critique"
     }
   },
   "timezone": {

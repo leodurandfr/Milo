@@ -37,17 +37,22 @@
         @open-settings="isSettingsOpen = true"
       />
 
-      <Modal :is-open="isEqualizerOpen" @close="isEqualizerOpen = false">
-        <EqualizerModal />
-      </Modal>
+      <!-- The modals are chrome too: a page that drops it is never covered
+           by one, whoever opens it (a speaker asking to be admitted, a kiosk
+           restart reopening Settings › Screen). -->
+      <template v-if="showChrome">
+        <Modal :is-open="isEqualizerOpen" @close="isEqualizerOpen = false">
+          <EqualizerModal />
+        </Modal>
 
-      <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
-        <MultiroomModal />
-      </Modal>
+        <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
+          <MultiroomModal />
+        </Modal>
 
-      <Modal :is-open="isSettingsOpen" @close="closeSettings">
-        <SettingsModal :initial-view="settingsInitialView" />
-      </Modal>
+        <Modal :is-open="isSettingsOpen" @close="closeSettings">
+          <SettingsModal :initial-view="settingsInitialView" />
+        </Modal>
+      </template>
 
       <VolumeOverlay :variant="isDarkSurface ? 'on-contrast' : 'default'" />
     </template>
@@ -667,10 +672,11 @@ watch(() => isReady.value
 // === Screen color: the panel's measured correction × the warm filter ===
 // Only applied on the Pi kiosk (localhost): both belong to its panel, and remote
 // browsers (e.g. milo.local from another device) keep their native colors.
-// App furniture the current route may opt out of: the Dock and the warm colour
-// filter. Declared by the route (`meta.chrome: false`) rather than matched on a
+// App furniture the current route may opt out of: the Dock, the modals and the
+// warm colour filter. Declared by the route (`meta.chrome: false`) rather than matched on a
 // path here, so the shell carries no knowledge of which page wants it — today
-// only /components does, where both would sit over the component being judged.
+// /components, where both would sit over the component being judged, and
+// /logs, a full page read as much from a phone as from the panel.
 const showChrome = computed(() => route.meta.chrome !== false);
 
 const colorLayerGains = computed(() => {
@@ -725,6 +731,21 @@ function closeSettings() {
   settingsInitialView.value = 'home'; // Reset for next open
 }
 
+function closeModals() {
+  isEqualizerOpen.value = false;
+  isMultiroomOpen.value = false;
+  lyricsStore.close();
+  closeSettings();
+}
+
+// A page that drops the chrome (the logs, opened from Settings) closes what
+// was open when it was opened, so the way back finds the appliance as the
+// page left it rather than the modal it was opened from. One opened while it
+// shows waits, unshown, for the way back.
+watch(showChrome, (shown) => {
+  if (!shown) closeModals();
+});
+
 // Dock control registration (for the auto-reveal at boot, on a backend restart
 // and on a touch wake — the Dock alone decides whether it comes up). The Dock
 // hands it back on unmount — `null` — so a route that drops the chrome cannot
@@ -738,12 +759,7 @@ provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openMultiroom', () => isMultiroomOpen.value = true);
 provide('openLyrics', () => lyricsStore.open());
 provide('openSettings', openSettings);
-provide('closeModals', () => {
-  isEqualizerOpen.value = false;
-  isMultiroomOpen.value = false;
-  lyricsStore.close();
-  closeSettings();
-});
+provide('closeModals', closeModals);
 provide('registerDockControl', registerDockControl);
 
 // === WebSocket dispatch tables ===

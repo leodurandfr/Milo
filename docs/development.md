@@ -163,8 +163,9 @@ frontend/src/
 **Architectural principles:**
 - **Composition API**: Code organized by functionality
 - **Reactive State**: Pinia + WebSocket sync
-- **Single Page App**: `vue-router` declares two routes — the appliance (`/` → `MainView`) and the
-  component gallery (`/components`, lazily loaded). Navigation inside the app is state-driven, not
+- **Single Page App**: `vue-router` declares three routes — the appliance (`/` → `MainView`), the
+  component gallery (`/components`, lazily loaded) and the logs page (`/logs` → `LogsView`, lazily
+  loaded, opened from Settings › System). Navigation inside the app is state-driven, not
   URL-driven — don't add routes without a deliberate decision to change that model
 
 ## Data flow

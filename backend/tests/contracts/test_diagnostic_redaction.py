@@ -326,6 +326,53 @@ def test_a_global_ipv6_address_is_replaced_and_a_local_one_is_not():
     assert wl.strip_global_ipv6("2026-09-04T18:05:20+02:00 ok") == "2026-09-04T18:05:20+02:00 ok"
 
 
+@pytest.mark.parametrize("line", [
+    "public address is 82.64.10.23.",
+    "host=82.64.10.23.",
+    "checked 82.64.10.23...",
+    "82.64.10.23, then the port",
+    "peer_82.64.10.23_x",
+    "(82.64.10.23)",
+    "82.64.10.23:443",
+])
+def test_a_public_ipv4_address_is_replaced_wherever_it_ends(line):
+    """The logs page's rule for the household's public address (an external
+    check, a port forward), which names the subscriber line. A sentence's own
+    period after it, its most common place, is where it escaped."""
+    out = wl.strip_public_ipv4(line)
+    assert "82.64.10.23" not in out and "<public-ipv4>" in out, out
+
+
+def test_a_local_address_and_a_dotted_version_are_not_a_public_address():
+    line = "lan 192.168.1.5. tailscale 100.64.0.7, package 1.2.3.4.5 and v8.8.8.8"
+    assert wl.strip_public_ipv4(line) == line
+
+
+@pytest.mark.parametrize("line, kept", [
+    ("level=warn msg=\"Could not read tags\" path=/media/milo/share-1/Leo/Private/A/01.flac err=EIO",
+     "path=/media/milo/share-1/<path> err=EIO"),
+    ("level=warn msg=\"Could not read tags\" path=\"/media/milo/share-1/Leo/My Album/01 Song.flac\" err=EIO",
+     "path=\"/media/milo/share-1/<path>\" err=EIO"),
+    ("open('/media/milo/share-1/Leo/a b/c.mp3') failed", "open('/media/milo/share-1/<path>') failed"),
+])
+def test_a_path_under_a_mounted_share_keeps_its_mount_only(line, kept):
+    """The folders and files a household keeps on a NAS or a USB drive are
+    theirs; Navidrome's scanner names the file it could not read. The mount
+    stays — it says which storage space the fault is on."""
+    out = wl.Redactor()(line)
+    assert kept in out, out
+    for private in ("Leo", "Private", "Album", "Song", "a b"):
+        assert private not in out, out
+
+
+def test_a_usb_drive_path_is_cut_before_its_mountpoint_is_labeled():
+    """A USB drive's mountpoint is replaced whole by its label: the path
+    after it must be gone first, or nothing would read it any more."""
+    redactor = wl.Redactor({"/media/milo/SANDISK": "usb-1"})
+    out = redactor("scan error path=/media/milo/SANDISK/Leo/Private/01.flac")
+    assert out == "scan error path=usb-1/<path>"
+
+
 def test_the_redactor_replaces_an_excluded_value_wherever_it_appears():
     """An exclusion has to follow its value into free text, or it is decorative.
 

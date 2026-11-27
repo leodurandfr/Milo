@@ -1033,6 +1033,11 @@
       "hidePreview": "Hide the report",
       "notCollected": "Could not be collected:"
     },
+    "logs": {
+      "title": "Logs",
+      "description": "What Milō and its speakers recorded recently, grouped and searchable. Network, share and speaker names are replaced, so the page can be shared.",
+      "open": "Open the logs"
+    },
     "licenses": {
       "title": "Third-party licenses",
       "description": "The programs Milō is built on, with their versions and licenses, and how to obtain the source code those licenses provide for.",
@@ -1044,6 +1049,33 @@
       "action": "Reset",
       "confirm": "Confirm reset?",
       "running": "Restarting…"
+    }
+  },
+  "logs": {
+    "refresh": "Read the logs again",
+    "search": "Search the logs",
+    "readFailed": "The logs could not be read.",
+    "truncated": "Journal lines before {time} are not included: the period holds more than one read returns.",
+    "empty": "No line matches these filters.",
+    "count": "×{count}",
+    "firstSeen": "First seen {time}",
+    "contextFailed": "The lines around this one could not be read.",
+    "copy": "Copy for correction",
+    "copied": "Copied for correction",
+    "copyFailed": "Copying failed. Select the lines and copy them by hand.",
+    "more": "{shown} of {total} events shown. Narrow the filters to see the rest.",
+    "allServices": "Every service",
+    "severity": {
+      "all": "Every severity",
+      "warning": "Warnings and errors",
+      "error": "Errors only"
+    },
+    "levels": {
+      "debug": "Debug",
+      "info": "Info",
+      "warning": "Warning",
+      "error": "Error",
+      "critical": "Critical"
     }
   },
   "timezone": {

@@ -3,14 +3,15 @@
 System power management + status + telemetry routes
 (restart, shutdown, hostname conflict, temperature, resources, network).
 """
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 import asyncio
 import functools
 import logging
 import os
 import zoneinfo
+from datetime import datetime, timedelta
 from time import monotonic
-from typing import Optional, TYPE_CHECKING
+from typing import Literal, Optional, TYPE_CHECKING
 
 from backend.api.models import DevicePasswordRequest, SshRequest, TimezoneRequest
 from backend.api.programs import refuse_while_milo_updates
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
     from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
+    from backend.core.system.logs import LogService
     from backend.core.system.notices import SetAsideNotices
     from backend.core.settings import SettingsService
     from backend.core.systemd import SystemdServiceManager
@@ -88,6 +90,21 @@ async def _daylight_location() -> dict:
     return {"latitude": latitude, "longitude": longitude, "timezone": zone}
 
 
+# The logs page's window, back from now: a count and m/h/d. Thirty days is
+# past anything a unit keeps (errors.log's rotations reach furthest).
+LOG_WINDOW_PATTERN = r"^\d{1,4}[mhd]$"
+LOG_WINDOW_MAX = timedelta(days=30)
+_LOG_WINDOW_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
+
+
+def _log_window(since: str) -> timedelta:
+    window = timedelta(**{_LOG_WINDOW_UNITS[since[-1]]: int(since[:-1])})
+    if not timedelta(0) < window <= LOG_WINDOW_MAX:
+        logger.info("Logs refused: a window of %s", since)
+        raise HTTPException(status_code=400, detail=f"since must be between 1m and {LOG_WINDOW_MAX.days}d")
+    return window
+
+
 def create_system_router(
     systemd_manager: "SystemdServiceManager",
     hostname_conflict_service: Optional["HostnameConflictService"] = None,
@@ -98,6 +115,7 @@ def create_system_router(
     update_service: Optional["UpdateService"] = None,
     settings_service: Optional["SettingsService"] = None,
     notice_service: Optional["SetAsideNotices"] = None,
+    log_service: Optional["LogService"] = None,
 ):
     router = APIRouter()
 
@@ -390,6 +408,49 @@ def create_system_router(
                 len(result["report"].encode("utf-8")), len(result["unavailable"]),
             )
             return {"status": "success", "data": result}
+
+    @router.get("/logs")
+    async def read_logs(
+        since: str = Query("24h", pattern=LOG_WINDOW_PATTERN),
+        level: Optional[Literal["debug", "info", "warning", "error", "critical"]] = None,
+        service: Optional[str] = Query(None, max_length=200),
+        q: Optional[str] = Query(None, max_length=200),
+        limit: int = Query(200, ge=1, le=1000),
+    ):
+        """The logs of the window `since` back from now, grouped and redacted.
+
+        Read when asked, nothing in the background: errors.log and its
+        rotations, the journal of the `milo-*` units, each online speaker's
+        own tails. Repeated lines come as one group (count, first and last
+        occurrence); `level` is a minimum severity, `service` one service,
+        `q` a text matched against the redacted line. Every line is redacted
+        as the diagnostic report's are; a place that could not be read is
+        listed in `not_collected` with its reason.
+        """
+        async with api_error_handler("Failed to read the logs", logger):
+            if log_service is None:
+                raise HTTPException(status_code=503, detail="Log service unavailable")
+            page = await log_service.read(
+                since=_log_window(since), level=level, service=service or None, q=q or None,
+                limit=limit,
+            )
+            return {"status": "success", "data": page.model_dump(mode="json")}
+
+    @router.get("/logs/context")
+    async def read_log_context(
+        at: datetime,
+        service: Optional[str] = Query(None, max_length=200),
+    ):
+        """What "Copy for correction" sends: the 20 lines on each side of the
+        event at `at` (of `service`), every service together, the event's own
+        text redacted with them (`sample`), the release the unit runs (version
+        and commit), and the audio source at that moment — with how that is
+        known (`source_state.basis`)."""
+        async with api_error_handler("Failed to read the context of a log line", logger):
+            if log_service is None:
+                raise HTTPException(status_code=503, detail="Log service unavailable")
+            context = await log_service.context(at=at, service=service or None)
+            return {"status": "success", "data": context.model_dump(mode="json")}
 
     @router.post("/reset-setup")
     async def reset_setup(background_tasks: BackgroundTasks):

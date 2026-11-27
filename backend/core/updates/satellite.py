@@ -571,6 +571,24 @@ class SatelliteUpdateService:
         """
         return await self._git("describe", "--tags", "--always")
 
+    async def running_build(self) -> Dict[str, Optional[str]]:
+        """What this server runs, for the logs page's "Copy for correction":
+        `version`, the one string `get_server_version` gives (so it reads
+        exactly as Programs and every satellite row show it), and `commit`,
+        HEAD's full hash. Each None when git could not say."""
+        async def read(what: str, ask: Callable[[], Awaitable[Optional[str]]]) -> Optional[str]:
+            try:
+                return await ask() or None
+            except OSError as e:
+                self.logger.warning(f"{what} could not be read: {e}")
+                return None
+
+        version, commit = await asyncio.gather(
+            read("the server's version", self.get_server_version),
+            read("HEAD", lambda: self._git("rev-parse", "HEAD")),
+        )
+        return {"version": version, "commit": commit}
+
     async def _create_client_tarball(self) -> tuple:
         """Creates a tarball of the milo-client/ directory.
 

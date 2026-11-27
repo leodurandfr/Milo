@@ -51,8 +51,11 @@ two halves: what the unit knows now (the devices BlueZ holds, the audio state)
 is labeled wherever it appears, and `LISTENING_SHAPES` takes the value out of
 the lines that name one, which is what catches the track played three hours ago.
 """
+import ipaddress
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
+
+from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
 
 
 # =============================================================================
@@ -455,6 +458,34 @@ _GLOBAL_IPV6 = re.compile(
 )
 
 
+# A path below a mounted storage space: the root and the mount itself stay (the
+# Redactor's labels then replace a share's id or a USB drive's mountpoint), the
+# folders and files below go. A quoted path (logfmt quotes a value that holds a
+# space) is taken to its closing quote; an unquoted one to the next space.
+_MOUNT_ROOT = re.escape(str(MUSIC_LIBRARY_MOUNT_ROOT))
+_MOUNTED_PATH = re.compile(
+    rf"(?P<quote>[\"'])(?P<quoted>{_MOUNT_ROOT}/[^/\"'\n]+)/(?:(?!(?P=quote))[^\n])+(?P=quote)"
+    rf"|(?<![\w/])(?P<bare>{_MOUNT_ROOT}/[^/\s\"']+)/[^\s\"',)]+"
+)
+
+
+def strip_mounted_paths(text: str) -> str:
+    """Cut a path under the music library's mount root after its mount.
+
+    The folders and file names a household keeps on a NAS or a USB drive are
+    theirs (a member's name, "Private", every album), and Navidrome's scanner
+    names a file it could not read, with its path. The mount stays: it says
+    which storage space a fault is on, and its label is the report's own.
+    """
+    def replace(match: "re.Match[str]") -> str:
+        if match.group("quoted"):
+            quote = match.group("quote")
+            return f"{quote}{match.group('quoted')}/<path>{quote}"
+        return f"{match.group('bare')}/<path>"
+
+    return _MOUNTED_PATH.sub(replace, text)
+
+
 def strip_global_ipv6(text: str) -> str:
     """Replace globally routable IPv6 addresses; keep the local ones.
 
@@ -471,6 +502,36 @@ def strip_global_ipv6(text: str) -> str:
     Nothing is diagnosed from it that `eth0 is up` does not already say.
     """
     return _GLOBAL_IPV6.sub("<global-ipv6>", text)
+
+
+# Bounded by anything but a letter, a digit or a dot that continues a dotted
+# number: a sentence's own period ("is 82.64.10.23.") and an underscore
+# ("peer_82.64.10.23_x") end the address, and a version string (1.2.3.4.5)
+# is not one.
+_IPV4_ANYWHERE = re.compile(r"(?<![^\W_])(?<!\d\.)\d{1,3}(?:\.\d{1,3}){3}(?![^\W_]|\.\d)")
+
+
+def strip_public_ipv4(text: str) -> str:
+    """Replace globally routable IPv4 addresses; keep the local ones.
+
+    Not applied by the Redactor, whose report keeps them: that file goes to
+    the maintainer, and a radio or a CDN address is part of what a playback
+    fault is read from. The logs page applies it on top, because a page meant
+    to stay publishable may carry the household's own public address (an
+    external check, a port forward), and that one identifies the subscriber
+    line exactly as a global IPv6 address does. LAN, loopback, link-local,
+    CGNAT (Tailscale), multicast and broadcast addresses are not global and
+    stay.
+    """
+    def replace(match: "re.Match[str]") -> str:
+        try:
+            address = ipaddress.ip_address(match.group(0))
+        except ValueError:
+            return match.group(0)
+        public = address.is_global and not address.is_multicast
+        return "<public-ipv4>" if public else match.group(0)
+
+    return _IPV4_ANYWHERE.sub(replace, text)
 
 
 # The shapes Milō's own lines give a network name, read off every logger call
@@ -830,7 +891,9 @@ class Redactor:
         return self._next_label("bt", address)
 
     def __call__(self, text: str) -> str:
-        text = strip_global_ipv6(strip_query_strings(text))
+        # The mounted paths first: a USB drive's mountpoint is replaced whole
+        # by its label below, which would leave the path after it unread.
+        text = strip_global_ipv6(strip_query_strings(strip_mounted_paths(text)))
         about_a_network = bool(_WIFI_LINE.search(text))
         about_bluetooth = bool(_BT_LINE.search(text))
         if self._text is not None:

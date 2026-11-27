@@ -1,13 +1,31 @@
-"""Custom logging handler that broadcasts backend errors to the frontend via WebSocket."""
+"""Custom logging handler that broadcasts backend errors to the frontend via
+WebSocket, and the format errors.log is written in."""
 import asyncio
 import contextlib
 import logging
+import time
 from time import monotonic
 
 from backend.core.models.ws_events import SystemBackendError
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
+
+
+def errors_log_formatter() -> logging.Formatter:
+    """errors.log's line: `[2026-11-27T09:00:00.123Z] WARNING backend.x - message`.
+
+    UTC, and marked so (`Z`). Local time read back by another process names
+    no moment: glibc reads /etc/localtime once per process, so every line
+    written before a time zone change (the setup wizard's, then a reboot)
+    read an hour off, and the hour that repeats each autumn names two moments.
+    Read back by `core/system/logs/entries.py::parse_errors_log`.
+    """
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s %(name)s - %(message)s")
+    formatter.converter = time.gmtime
+    formatter.default_time_format = "%Y-%m-%dT%H:%M:%S"
+    formatter.default_msec_format = "%s.%03dZ"
+    return formatter
 
 
 class WebSocketLogHandler(logging.Handler):

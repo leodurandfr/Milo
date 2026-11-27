@@ -3,7 +3,7 @@
 
 # REST operations
 
-The 223 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
+The 225 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
 
 **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
@@ -342,6 +342,8 @@ The 223 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | `GET` | `/api/system/network-info` |  | untyped JSON | internal |
 | `GET` | `/api/system/resources` |  | untyped JSON | internal |
 | `POST` | `/api/system/diagnostic` |  | untyped JSON | internal |
+| `GET` | `/api/system/logs` |  | untyped JSON | internal |
+| `GET` | `/api/system/logs/context` |  | untyped JSON | internal |
 | `POST` | `/api/system/reset-setup` |  | untyped JSON | internal |
 | `GET` | `/api/system/ssh` |  | untyped JSON | internal |
 | `PUT` | `/api/system/ssh` | SshRequest | untyped JSON | internal |

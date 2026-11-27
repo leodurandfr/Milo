@@ -1796,6 +1796,22 @@ Allowed methods: `GET POST PUT PATCH DELETE OPTIONS`. Allowed headers: `Content-
 - WebSocket singleton (one shared connection)
 - User event debouncing
 
+### Slow operations and the logs page
+
+Slowness is said in the journal by one tool, `backend/shared/timing.py`: a timed operation that runs past its threshold writes one WARNING, `slow: <operation> took N ms (threshold M ms): <detail>`, under the logger `backend.shared.timing` — below the ERROR that `WebSocketLogHandler` turns into a banner. The thresholds are declared once, in `THRESHOLDS_MS`, and each comes from a measurement on a unit (journal of 2026-11-25 to 2026-11-27: the larger of median × 3 and p90 × 1.5, rounded up to the next 500 ms), cited beside it:
+
+| Operation | Placed in | Threshold |
+|---|---|---|
+| `source.transition` — the transition lock taken → the final publish of a successful transition | `core/state.py::_transition` | 2000 ms (n=36, median 660, p90 1129) |
+| `source.until_playing.<source>` — a session opened LOADING → the first publish carrying it PLAYING, one operation per source | `core/audio_source.py` | radio 2000 ms (n=14 by proxy, median 615); every other source to measure |
+| `multiroom.admission` — the successful attempt of a speaker's admission → shown online | `core/multiroom/websocket.py` | 1500 ms (n=66, median 343, p90 404) |
+| `update.*` — each step of a program or Milō update (backup, download, configure, compile, install, verify, service control, rollback), named with what it worked on | `core/updates/update.py`, `@measured` | to measure |
+| `music_library.navidrome_request` — one Subsonic JSON request, the scan watcher's poll excepted | `sources/music_library/navidrome_client.py` | to measure |
+
+An operation marked *to measure* writes `timed: <operation> took N ms (threshold to measure)` at INFO on every run and never a WARNING: its threshold is set once five or more runs of it have been read off a unit. A run that failed — it raised, or an update step returned its failure — writes nothing, so the samples hold successes only.
+
+The logs page (`/logs`, opened from Settings › System) reads `GET /api/system/logs` and `GET /api/system/logs/context`, served by `backend/core/system/logs/`. Nothing runs in the background: each read takes errors.log and its rotations (a rotation last written before the window is not read), the journal of the `milo-*` units (JSON, bounded at 5000 entries and 8 s) and each online speaker's journal tails, the ones its diagnostic block carries (bounded at 6 s; a speaker the registry shows offline is not asked), and lists any place that could not be read as *not collected* with its reason. errors.log is written in UTC and says so (`[2026-11-27T09:00:00.123Z] …`), so a line keeps its moment across a time zone change. A record the backend wrote to both errors.log and the journal is shown once. Lines are grouped on a template (numbers, hex ids, MAC and IP addresses masked) with a count and a first and last occurrence. Every line is redacted before it is filtered, grouped or sent — the diagnostic's Redactor, built from the same reads as a report (which also cuts a path under `/media/milo` after its mount), then `strip_public_ipv4` — because the API is not authenticated and the page is meant to stay publishable. The parsing, the redaction and the grouping run in a thread, one answer at a time, never on the event loop. The context of an event is the 20 lines on each side of it, every service together, the event's own text redacted with them, the release the unit runs, and the audio source at that moment: the last logged transition (a failed one leaves its target selected), else a backend start, else the current state, labeled as such.
+
 ### Known limitations
 
 - Mac streaming target latency: 50 ms by default (20–500 ms)

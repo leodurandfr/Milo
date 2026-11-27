@@ -1033,6 +1033,11 @@
       "hidePreview": "Nascondi il rapporto",
       "notCollected": "Non è stato possibile raccogliere:"
     },
+    "logs": {
+      "title": "Log",
+      "description": "Ciò che Milō e i suoi altoparlanti hanno registrato di recente, raggruppato e ricercabile. I nomi di rete, di condivisione e di altoparlante sono sostituiti, quindi la pagina può essere condivisa.",
+      "open": "Apri i log"
+    },
     "licenses": {
       "title": "Licenze di terze parti",
       "description": "I programmi su cui si basa Milō, con versione e licenza, e come ottenere il codice sorgente previsto da tali licenze.",
@@ -1044,6 +1049,33 @@
       "action": "Reimposta",
       "confirm": "Confermi la reimpostazione?",
       "running": "Riavvio…"
+    }
+  },
+  "logs": {
+    "refresh": "Rileggi i log",
+    "search": "Cerca nei log",
+    "readFailed": "Non è stato possibile leggere i log.",
+    "truncated": "Le righe del journal precedenti a {time} non sono incluse: il periodo ne contiene più di quante ne restituisca una lettura.",
+    "empty": "Nessuna riga corrisponde a questi filtri.",
+    "count": "×{count}",
+    "firstSeen": "Visto per la prima volta {time}",
+    "contextFailed": "Non è stato possibile leggere le righe intorno a questa.",
+    "copy": "Copia per la correzione",
+    "copied": "Copiato per la correzione",
+    "copyFailed": "Copia non riuscita. Selezioni le righe e le copi a mano.",
+    "more": "{shown} eventi su {total} mostrati. Restringa i filtri per vedere il resto.",
+    "allServices": "Tutti i servizi",
+    "severity": {
+      "all": "Tutte le gravità",
+      "warning": "Avvisi ed errori",
+      "error": "Solo errori"
+    },
+    "levels": {
+      "debug": "Debug",
+      "info": "Info",
+      "warning": "Avviso",
+      "error": "Errore",
+      "critical": "Critico"
     }
   },
   "timezone": {

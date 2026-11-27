@@ -231,11 +231,19 @@ def _create_service(name: str) -> Any:
             registry_service=get_service("client_registry_service"),
             # UpdateService extends VersionService: the installed-version reads
             # this needs are the same object the update manager uses.
-            version_service=get_service("update_service"),
+            version_service=get_service("satellite_update_service"),
             connectivity_service=get_service("connectivity_service"),
             hostname_conflict_service=get_service("hostname_conflict_service"),
             # The WiFi networks NetworkManager holds, which the report must not name.
             network_service=get_service("network_service"),
+        ),
+
+        # The logs page (Settings › System › Logs). Reads on demand, through
+        # the diagnostic's Redactor and its speaker reads; no state, no task.
+        "log_service": lambda: _import("backend.core.system.logs", "LogService")(
+            diagnostic_service=get_service("diagnostic_service"),
+            version_service=get_service("satellite_update_service"),
+            state_machine=get_service("audio_state_machine"),
         ),
 
         # Lyrics (transverse Lyrics app — LRCLIB lookup + disk cache; no source, no boot init)

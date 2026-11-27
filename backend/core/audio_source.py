@@ -29,6 +29,7 @@ from backend.core.models.ws_events import (
 )
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.pidfd import ProcessWatch
+from backend.shared import timing
 
 logger = logging.getLogger(__name__)
 
@@ -390,6 +391,9 @@ class BaseAudioSource(ABC):
         # The view at the last publish, for the net after a message; None
         # until the source first published.
         self._published: Optional[SourceView] = None
+        # A session opened LOADING, timed until its first PLAYING
+        # (_follow_until_playing): (its id, the timer), or None.
+        self._until_playing: Optional[Tuple[str, timing.Timer]] = None
 
     @property
     def view(self) -> SourceView:
@@ -1000,6 +1004,7 @@ class BaseAudioSource(ABC):
     def _publish(self) -> None:
         """The source's one publish site: its view, to the state machine."""
         self._rebase_anchor()
+        self._follow_until_playing()
         view = self._view()
         self._published = view
         if self.state_machine:
@@ -1143,6 +1148,26 @@ class BaseAudioSource(ABC):
             scale=now - step_reference(), settles_until=self._settle_window(),
         )
 
+    def _follow_until_playing(self) -> None:
+        """Stop the until-playing timer at the first publish that carries
+        its session PLAYING, and drop it at one that carries anything else
+        but LOADING — another session, none, PAUSED (the CD preloads a disc
+        paused, and plays when the owner presses play, a minute later), or
+        CONNECTED: only the wait for sound the owner asked for is timed.
+        At the publish, not the phase event: that is when every screen learns."""
+        pending = self._until_playing
+        if pending is None:
+            return
+        session_id, timer = pending
+        session = self._session
+        if session is not None and session.id == session_id and session.phase is Phase.LOADING:
+            return
+        self._until_playing = None
+        if session is not None and session.id == session_id and session.phase is Phase.PLAYING:
+            timer.stop()
+        else:
+            timer.cancel()
+
     # === Sessions ===
     #
     # One place opens a session and one place ends it, always for a named
@@ -1156,6 +1181,14 @@ class BaseAudioSource(ABC):
             raise IllegalTransition("a session is already open")
         session.opened_mono = monotonic()
         self._session = session
+        # From the load the source asked of its player to the first sound: a
+        # session opened in any other phase (a daemon's, a paused restore)
+        # was not waiting for one. One operation per source, each with the
+        # threshold measured for it (THRESHOLDS_MS).
+        if session.phase is Phase.LOADING:
+            self._until_playing = (
+                session.id, timing.start(f"source.until_playing.{self.source_id}")
+            )
         self._session_bg = BackgroundTaskSet(self._logger, f"source.{self.source_id}.session")
         return session
 

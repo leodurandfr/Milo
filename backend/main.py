@@ -60,10 +60,11 @@ logger = logging.getLogger(__name__)
 # Persist errors/warnings to rotating log file. Fail open if the data dir is
 # missing (CI, non-Pi dev) — systemd's StateDirectory guarantees it in production.
 from backend.config.constants import ERROR_LOG_FILE
+from backend.core.log_handler import errors_log_formatter
 try:
     _file_handler = RotatingFileHandler(ERROR_LOG_FILE, maxBytes=2*1024*1024, backupCount=3)
     _file_handler.setLevel(logging.WARNING)
-    _file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(name)s - %(message)s'))
+    _file_handler.setFormatter(errors_log_formatter())
     logging.getLogger().addHandler(_file_handler)
 except OSError as e:
     logger.warning(f"Error log persistence disabled ({ERROR_LOG_FILE}): {e}")
@@ -520,6 +521,7 @@ system_router = create_system_router(
     update_service=update_service,
     settings_service=settings_service,
     notice_service=notice_service,
+    log_service=get_service("log_service"),
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 

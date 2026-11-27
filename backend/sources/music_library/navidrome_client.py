@@ -24,6 +24,7 @@ therefore means "no library to read" and answers empty, never the whole catalog:
 to Subsonic an absent ``musicFolderId`` is *everything*, so the one place that
 distinction can be lost is here.
 """
+import contextlib
 import hashlib
 import logging
 import secrets
@@ -36,6 +37,7 @@ from urllib.parse import urlencode
 import aiohttp
 
 from backend.config.constants import NAVIDROME_CRED_FILE, NAVIDROME_URL
+from backend.shared import timing
 from backend.shared.network import describe_network_error, is_network_error
 from backend.sources.music_library.artist_filter import drop_placeholder_artists
 from backend.sources.music_library.artist_images import artist_cover_id
@@ -290,6 +292,7 @@ class NavidromeClient:
         params: Optional[Dict[str, Any]] = None,
         *,
         report_unanswered: bool = True,
+        timed: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """GET a Subsonic JSON endpoint and unwrap the ``subsonic-response``.
 
@@ -303,8 +306,12 @@ class NavidromeClient:
         Every sentinel is also reported to ``on_unanswered``, read or write,
         strict or failing open — except where ``report_unanswered`` is False:
         the scan watcher's own poll, which reports for itself.
+
+        Every request is timed (``music_library.navidrome_request``) — except
+        where ``timed`` is False: that same poll, every 3 s through a scan,
+        which nobody waits on and whose lines would crowd the journal out.
         """
-        response = await self._request(endpoint, params)
+        response = await self._request(endpoint, params, timed=timed)
         if (
             report_unanswered
             and self._on_unanswered is not None
@@ -315,57 +322,63 @@ class NavidromeClient:
         return response
 
     async def _request(
-        self, endpoint: str, params: Optional[Dict[str, Any]]
+        self, endpoint: str, params: Optional[Dict[str, Any]], *, timed: bool = True
     ) -> Optional[Dict[str, Any]]:
         """The one GET behind _make_request, which documents what it answers."""
         await self._ensure_session()
         query = {**self._auth_params(), "f": "json", **(params or {})}
 
-        try:
-            async with self._session.get(
-                f"{self._base_url}/rest/{endpoint}",
-                params=_encode_query(query),
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                if resp.status in _NOT_ANSWERING_STATUSES:
-                    self.logger.info(
-                        f"Navidrome did not answer yet: HTTP {resp.status} on {endpoint}"
-                    )
-                    return dict(_NETWORK_ERROR)
-                if resp.status != 200:
-                    body = await resp.text()
+        # Every answer timed, the unanswered ones included (THRESHOLDS_MS: to
+        # measure); a credential refusal, raised, is not a duration.
+        with (
+            timing.timed("music_library.navidrome_request", endpoint)
+            if timed else contextlib.nullcontext()
+        ):
+            try:
+                async with self._session.get(
+                    f"{self._base_url}/rest/{endpoint}",
+                    params=_encode_query(query),
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    if resp.status in _NOT_ANSWERING_STATUSES:
+                        self.logger.info(
+                            f"Navidrome did not answer yet: HTTP {resp.status} on {endpoint}"
+                        )
+                        return dict(_NETWORK_ERROR)
+                    if resp.status != 200:
+                        body = await resp.text()
+                        self.logger.error(
+                            f"Navidrome HTTP {resp.status} on {endpoint}: {body[:300]}"
+                        )
+                        return None
+
+                    payload = await resp.json()
+                    response = payload.get("subsonic-response", {})
+
+                    if response.get("status") == "ok":
+                        return response
+
+                    error = response.get("error", {})
+                    code = error.get("code")
+                    message = error.get("message", "unknown")
+                    # 40 = wrong credentials, 41 = token auth not supported for user.
+                    if code in (40, 41):
+                        raise NavidromeAuthError(f"Navidrome auth rejected: {message}")
                     self.logger.error(
-                        f"Navidrome HTTP {resp.status} on {endpoint}: {body[:300]}"
+                        f"Navidrome API error on {endpoint}: code={code} {message}"
                     )
                     return None
 
-                payload = await resp.json()
-                response = payload.get("subsonic-response", {})
-
-                if response.get("status") == "ok":
-                    return response
-
-                error = response.get("error", {})
-                code = error.get("code")
-                message = error.get("message", "unknown")
-                # 40 = wrong credentials, 41 = token auth not supported for user.
-                if code in (40, 41):
-                    raise NavidromeAuthError(f"Navidrome auth rejected: {message}")
-                self.logger.error(
-                    f"Navidrome API error on {endpoint}: code={code} {message}"
-                )
+            except NavidromeAuthError:
+                raise
+            except Exception as exc:
+                if is_network_error(exc):
+                    self.logger.info(
+                        f"Navidrome did not answer yet: {describe_network_error(exc)}"
+                    )
+                    return dict(_NETWORK_ERROR)
+                self.logger.error(f"Navidrome unexpected error on {endpoint}: {exc}")
                 return None
-
-        except NavidromeAuthError:
-            raise
-        except Exception as exc:
-            if is_network_error(exc):
-                self.logger.info(
-                    f"Navidrome did not answer yet: {describe_network_error(exc)}"
-                )
-                return dict(_NETWORK_ERROR)
-            self.logger.error(f"Navidrome unexpected error on {endpoint}: {exc}")
-            return None
 
     # === Health / scan ===
 
@@ -399,7 +412,7 @@ class NavidromeClient:
         """
         # Not reported: this is the scan watcher's poll, the one caller that
         # decides for itself what an unanswered catalog means.
-        response = await self._make_request("getScanStatus", report_unanswered=False)
+        response = await self._make_request("getScanStatus", report_unanswered=False, timed=False)
         if response is not None and response.get("_network_error"):
             return ScanStatus(available=False)
         if response is None:

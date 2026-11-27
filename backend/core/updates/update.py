@@ -56,6 +56,36 @@ from backend.core.updates.milo_journal import (
     TRIAL_STEP,
 )
 from backend.config.constants import DEPLOY_UPDATE_CMD
+from backend.shared import timing
+
+
+def _step_subject(args: tuple, kwargs: dict) -> str:
+    """What a timed update step works on, for its `timed:` line: the unit of
+    the program it was handed, else the file, repository or unit named by its
+    first argument — so the samples can be read per program."""
+    subject = args[1] if len(args) > 1 else None  # args[0] is the service
+    if isinstance(subject, dict):
+        return str(subject.get("service_name") or subject.get("name") or subject.get("version") or "")
+    if isinstance(subject, (str, Path)):
+        return str(subject)
+    return ""
+
+
+def _step_failed(result: Any) -> bool:
+    """A step that reports its failure by its result — `{"success": False}`,
+    `(False, output)` or `False` — rather than by raising."""
+    if isinstance(result, dict):
+        return result.get("success") is False
+    if isinstance(result, tuple):
+        return bool(result) and result[0] is False
+    return result is False
+
+
+def _step(operation: str):
+    """`timing.measured` for an update step: its subject named, its failure
+    writing no duration (THRESHOLDS_MS: a threshold read from samples that
+    mixed failures in would be a guess)."""
+    return timing.measured(operation, detail=_step_subject, failed=_step_failed)
 
 # qobuz-proxy is a pip package installed from its tag's source archive, checked
 # against the manifest's digest first — the same file the image build installs
@@ -987,6 +1017,7 @@ class UpdateService(VersionService):
         """
         return digest_for(self.programs[program_key], version, asset)
 
+    @_step("update.download")
     async def _download_release_asset(self, url: str, dest: Path, sha256: Optional[str]) -> None:
         """Stream one release asset to disk and check it against `sha256`.
         Raises on anything but a 200, and on a file that is not the one declared.
@@ -1097,6 +1128,7 @@ class UpdateService(VersionService):
         finally:
             await self._cleanup_temp_files(str(staging))
 
+    @_step("update.install")
     async def _install_python_dependencies(self) -> None:
         """Install the release's requirements.lock into the app venv. Raises on failure.
 
@@ -1121,6 +1153,7 @@ class UpdateService(VersionService):
         if not success:
             raise Exception(f"pip install failed: {output}")
 
+    @_step("update.verify")
     async def _check_the_new_release_imports(self) -> None:
         """Import the new release with the venv it will run in. Raises on failure.
 
@@ -1637,6 +1670,7 @@ class UpdateService(VersionService):
             rolled_back = await self._rollback_binary_program(config, run_service)
             return self._failure_after_rollback(f"{e}.", rolled_back)
 
+    @_step("update.backup")
     async def _backup_binary_program(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Backs up the program's binary, plus its config file when it has one.
 
@@ -1659,6 +1693,7 @@ class UpdateService(VersionService):
         except Exception as e:
             return {"success": False, "error": f"Backup failed: {e}"}
 
+    @_step("update.download")
     async def _download_binary_program(self, config: Dict[str, Any], version: str) -> Dict[str, Any]:
         """Downloads the release tarball, checks it against the manifest's digest,
         and makes sure it carries the program's binary — before anything stops.
@@ -1702,6 +1737,7 @@ class UpdateService(VersionService):
             shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
+    @_step("update.verify")
     async def _verify_binary_program(self, config: Dict[str, Any], expect_service_active: bool) -> Dict[str, Any]:
         """Verifies the new binary is in place and the service came back up."""
         try:
@@ -1716,6 +1752,7 @@ class UpdateService(VersionService):
         except Exception as e:
             return {"success": False, "error": f"Verification failed: {e}"}
 
+    @_step("update.rollback")
     async def _rollback_binary_program(self, config: Dict[str, Any], restart_service: bool = True) -> bool:
         """Restores the backed-up binary, and restarts the service if the caller
         ran it or it runs now.
@@ -2048,6 +2085,7 @@ class UpdateService(VersionService):
             )
             return self._failure_after_rollback(f"{e}.", rolled_back)
 
+    @_step("update.backup")
     async def _backup_shairport_sync(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Backs up the shairport-sync binary, and the NQPTP binary it runs against"""
         try:
@@ -2095,6 +2133,7 @@ class UpdateService(VersionService):
         match = _NQPTP_VERSION_RE.search(output) if ok else None
         return (match.group(1), int(match.group(2))) if match else None
 
+    @_step("update.compile")
     async def _prepare_nqptp(
         self, shairport_source: str, shairport_version: str, parent_dir: str,
     ) -> Dict[str, Any]:
@@ -2179,6 +2218,7 @@ class UpdateService(VersionService):
             "expected": (target, required),
         }
 
+    @_step("update.install")
     async def _install_nqptp(self, build: Dict[str, Any]) -> Dict[str, Any]:
         """Swap the NQPTP binary and bring its unit back up.
 
@@ -2207,6 +2247,7 @@ class UpdateService(VersionService):
 
     # === Source builds (shairport-sync and its NQPTP) ===
 
+    @_step("update.download")
     async def _download_source(
         self, repo: str, tag_name: str, sha256: Optional[str], parent_dir: str = "/tmp",
     ) -> Dict[str, Any]:
@@ -2258,6 +2299,7 @@ class UpdateService(VersionService):
             shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
+    @_step("update.configure")
     async def _configure_source(self, source_dir: str, configure_flags: list) -> Dict[str, Any]:
         """Runs autoreconf and configure in a source tree"""
         try:
@@ -2304,6 +2346,7 @@ class UpdateService(VersionService):
         except Exception as e:
             return {"success": False, "error": f"Configure failed: {e}"}
 
+    @_step("update.compile")
     async def _compile_source(self, source_dir: str) -> Dict[str, Any]:
         """Compiles a configured source tree with make"""
         try:
@@ -2341,6 +2384,7 @@ class UpdateService(VersionService):
 
     # === shairport-sync's install, verification and rollback ===
 
+    @_step("update.install")
     async def _install_shairport_sync(self, source_dir: str) -> Dict[str, Any]:
         """Installs compiled shairport-sync via DESTDIR staging + install-binary.
 
@@ -2385,6 +2429,7 @@ class UpdateService(VersionService):
         finally:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
+    @_step("update.verify")
     async def _verify_shairport_sync_update(
         self, config: Dict[str, Any], service_was_active: bool,
         expected_nqptp: Optional[tuple[str, int]] = None,
@@ -2413,6 +2458,7 @@ class UpdateService(VersionService):
         except Exception as e:
             return {"success": False, "error": f"Verification failed: {e}"}
 
+    @_step("update.rollback")
     async def _rollback_shairport_sync(
         self, config: Dict[str, Any], service_was_active: bool = True,
         restore_nqptp: bool = False,
@@ -2671,6 +2717,7 @@ class UpdateService(VersionService):
             [pip, "install", "--no-cache-dir", "--upgrade", "--no-deps", package],
         ]
 
+    @_step("update.backup")
     async def _backup_qobuz_venv(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Copies the whole venv to backup_path/venv so a failed upgrade can roll back."""
         try:
@@ -2692,6 +2739,7 @@ class UpdateService(VersionService):
         except Exception as e:
             return {"success": False, "error": f"Backup failed: {e}"}
 
+    @_step("update.rollback")
     async def _rollback_qobuz_venv(self, config: Dict[str, Any], service_was_active: bool = False) -> bool:
         """Restores the backed-up venv (same path → shebangs stay valid)."""
         try:
@@ -2741,6 +2789,7 @@ class UpdateService(VersionService):
         except Exception as e:
             self.update_logger.warning(f"Failed to clean qobuz-proxy backup: {e}")
 
+    @_step("update.verify")
     async def _verify_qobuz_update(self, config: Dict[str, Any], expected_version: str) -> Dict[str, Any]:
         """Verifies the upgraded venv imports the patched stream and reports the expected version."""
         ok, out = await self._run_local(
@@ -2783,6 +2832,7 @@ class UpdateService(VersionService):
         self.update_logger.info(f"Detected Debian codename: {codename}")
         return codename
 
+    @_step("update.download")
     async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
         """Downloads a snapcast component (.deb) built for this unit's Debian
         release, checked against the manifest's digest of it.
@@ -2849,6 +2899,7 @@ class UpdateService(VersionService):
             self.update_logger.warning(f"apt is still held by {held_by} after {APT_LOCK_WAIT_S} s")
         return held_by
 
+    @_step("update.install")
     async def _install_deb_package(self, deb_path: str, sha256: Optional[str]) -> Dict[str, Any]:
         """Installs a .deb package via milo-deploy-update, which checks its own
         copy of the file against `sha256` before apt sees it (one `apt-get
@@ -2884,10 +2935,12 @@ class UpdateService(VersionService):
         """
         return requested or await self._systemd.probe_active(service_name) is True
 
+    @_step("update.service_control")
     async def _stop_service(self, service_name: str) -> bool:
         """Stops a systemd service."""
         return await self._systemd.stop(service_name)
 
+    @_step("update.service_control")
     async def _start_service(self, service_name: str) -> bool:
         """Starts a systemd service."""
         return await self._systemd.start(service_name)

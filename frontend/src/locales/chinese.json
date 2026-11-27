@@ -1033,6 +1033,11 @@
       "hidePreview": "隐藏报告",
       "notCollected": "未能收集："
     },
+    "logs": {
+      "title": "日志",
+      "description": "Milō 及其音箱最近记录的内容，已分组并可搜索。网络、共享和音箱名称均已替换，因此该页面可以分享。",
+      "open": "打开日志"
+    },
     "licenses": {
       "title": "第三方许可",
       "description": "Milō 所依赖的程序及其版本和许可证，以及如何获取这些许可证所规定的源代码。",
@@ -1044,6 +1049,33 @@
       "action": "重置",
       "confirm": "确认重置？",
       "running": "正在重启…"
+    }
+  },
+  "logs": {
+    "refresh": "重新读取日志",
+    "search": "搜索日志",
+    "readFailed": "无法读取日志。",
+    "truncated": "{time} 之前的日志行未包含在内：该时段的内容超过一次读取的返回量。",
+    "empty": "没有符合这些筛选条件的行。",
+    "count": "×{count}",
+    "firstSeen": "首次出现于 {time}",
+    "contextFailed": "无法读取此行前后的内容。",
+    "copy": "复制以供修正",
+    "copied": "已复制以供修正",
+    "copyFailed": "复制失败。请选中这些行并手动复制。",
+    "more": "显示 {total} 个事件中的 {shown} 个。请您缩小筛选范围以查看其余内容。",
+    "allServices": "所有服务",
+    "severity": {
+      "all": "所有严重级别",
+      "warning": "警告和错误",
+      "error": "仅错误"
+    },
+    "levels": {
+      "debug": "调试",
+      "info": "信息",
+      "warning": "警告",
+      "error": "错误",
+      "critical": "严重"
     }
   },
   "timezone": {

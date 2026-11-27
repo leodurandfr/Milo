@@ -150,6 +150,45 @@ class DiagnosticService:
         text, _ = render.fit_report(blocks)
         return {"report": text, "unavailable": unavailable}
 
+    async def build_redactor(self) -> Redactor:
+        """The Redactor a report applies to its free text, built from the same
+        reads (`_build_redactor`), for another reader of the same logs.
+
+        One per answer, like one per report: a value found by its shape keeps
+        the label it got first for the rest of the text it was built for.
+        """
+        ctx = DiagnosticContext(**self._services)
+        clients = list(self._clients())
+        ctx.labels = satellite.labels_for(clients)
+        ctx.zone_labels = satellite.zone_labels_for(self._zone_ids())
+        await self._build_redactor(ctx, clients)
+        return ctx.sanitize
+
+    async def satellite_blocks(self) -> List[Dict[str, Any]]:
+        """Each remote client's own diagnostic block, asked as the report asks
+        it (`satellite.collect_all`, bounded by its timeouts) — of the clients
+        the registry shows online only. One it shows offline is answered at
+        once, unreachable, rather than waited on for the connect timeout.
+
+        Unsanitized: the caller applies its Redactor, as `generate` does.
+        """
+        clients = list(self._clients())
+        labels = satellite.labels_for(clients)
+        online = [c for c in clients if c.online]
+        results = await satellite.collect_all(online, labels)
+        for client in clients:
+            if client.online or getattr(client, "is_local", False) or not client.ip:
+                continue
+            results.append({
+                "reachable": False,
+                "reason": "offline in the registry, not asked",
+                "label": labels.get(client.mac_id, client.mac_id),
+                "mac_id": client.mac_id,
+                "ip": client.ip,
+                "registry_online": False,
+            })
+        return results
+
     # ---------------------------------------------------------------- private
 
     def _sections(self) -> List[Tuple[str, Callable]]:

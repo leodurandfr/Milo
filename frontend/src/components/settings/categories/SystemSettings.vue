@@ -1,6 +1,7 @@
 <!-- frontend/src/components/settings/categories/SystemSettings.vue -->
 <!-- SSH, with the account password one level down. SSH stays closed on the
-     factory password. The third-party licenses are one level down too. -->
+     factory password. The third-party licenses are one level down too, and
+     the logs page is a page of its own (/logs). -->
 <template>
   <SectionStack>
     <SystemInfoSection />
@@ -50,6 +51,14 @@
       </template>
     </SectionCard>
 
+    <!-- Beside the report: the same logs, read on the page rather than sent.
+         The page drops the app's chrome, so this modal closes as it opens. -->
+    <SectionCard :title="t('system.logs.title')" :description="t('system.logs.description')">
+      <Button variant="control" @click="router.push({ name: 'logs' })">
+        {{ t('system.logs.open') }}
+      </Button>
+    </SectionCard>
+
     <SectionCard :title="t('system.licenses.title')" :description="t('system.licenses.description')">
       <Button variant="control" @click="$emit('open-licenses')">
         {{ t('system.licenses.open') }}
@@ -72,10 +81,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useRouter } from 'vue-router';
 import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import { useTimer } from '@/composables/useTimer';
 import { useSystemStore } from '@/stores/systemStore';
+import { writeToClipboard } from '@/utils/clipboard';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
@@ -86,6 +97,7 @@ import SshSection from '@/components/settings/categories/SshSection.vue';
 defineEmits(['open-password', 'open-licenses']);
 
 const { t } = useI18n();
+const router = useRouter();
 const timer = useTimer();
 const systemStore = useSystemStore();
 const { ssh } = storeToRefs(systemStore);
@@ -172,35 +184,6 @@ async function copyReport() {
   } else {
     copyError.value = t('system.diagnostic.copyFailed');
   }
-}
-
-/** navigator.clipboard exists only in a secure context. The kiosk browses
- *  http://localhost, which is one; a phone browsing http://milo.local is not,
- *  and there the selection-based path is the only one that works. */
-async function writeToClipboard(text) {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Fall through: a permission refusal still leaves the path below.
-    }
-  }
-  const area = document.createElement('textarea');
-  area.value = text;
-  area.setAttribute('readonly', '');
-  area.style.position = 'fixed';
-  area.style.opacity = '0';
-  document.body.appendChild(area);
-  area.select();
-  let ok = false;
-  try {
-    ok = document.execCommand('copy');
-  } catch {
-    ok = false;
-  }
-  document.body.removeChild(area);
-  return ok;
 }
 
 async function handleSshToggle(enabled) {

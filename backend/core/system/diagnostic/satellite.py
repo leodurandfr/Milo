@@ -149,7 +149,7 @@ def render(results: List[Dict[str, Any]], budget: int) -> str:
 # tests/test_diagnostic_service.py::test_a_satellite_block_cut_to_its_share_keeps_its_newest_journal_lines,
 # so a heading that moves on one side alone goes red rather than falling back.
 JOURNAL_HEADING = "[journal]"
-_UNIT_HEADING = re.compile(r"^--- (?P<unit>.+?) ---(?: \((?P<cut>\d+) older lines cut\))?$")
+UNIT_HEADING = re.compile(r"^--- (?P<unit>.+?) ---(?: \((?P<cut>\d+) older lines cut\))?$")
 # Room for a heading's own cut count, which grows as lines are taken out.
 _HEADING_SLACK = len(" (99999 older lines cut)") + 2
 
@@ -178,7 +178,7 @@ def fit_block(text: str, budget: int) -> str:
         current = None
         unread = 0
         for line in lines[start + 1:]:
-            heading = _UNIT_HEADING.match(line)
+            heading = UNIT_HEADING.match(line)
             if heading:
                 current = heading.group("unit")
                 units[current] = []

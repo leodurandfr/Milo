@@ -1033,6 +1033,11 @@
       "hidePreview": "Ocultar o relatório",
       "notCollected": "Não foi possível recolher:"
     },
+    "logs": {
+      "title": "Registos",
+      "description": "O que o Milō e as suas colunas registaram recentemente, agrupado e pesquisável. Os nomes de rede, de partilha e de coluna são substituídos, pelo que a página pode ser partilhada.",
+      "open": "Abrir os registos"
+    },
     "licenses": {
       "title": "Licenças de terceiros",
       "description": "Os programas em que o Milō assenta, com a versão e a licença de cada um, e como obter o código-fonte que essas licenças preveem.",
@@ -1044,6 +1049,33 @@
       "action": "Repor",
       "confirm": "Confirmar a reposição?",
       "running": "A reiniciar…"
+    }
+  },
+  "logs": {
+    "refresh": "Voltar a ler os registos",
+    "search": "Pesquisar nos registos",
+    "readFailed": "Não foi possível ler os registos.",
+    "truncated": "As linhas do diário anteriores a {time} não estão incluídas: o período contém mais do que uma leitura devolve.",
+    "empty": "Nenhuma linha corresponde a estes filtros.",
+    "count": "×{count}",
+    "firstSeen": "Visto pela primeira vez {time}",
+    "contextFailed": "Não foi possível ler as linhas à volta desta.",
+    "copy": "Copiar para correção",
+    "copied": "Copiado para correção",
+    "copyFailed": "A cópia falhou. Selecione as linhas e copie-as manualmente.",
+    "more": "{shown} de {total} eventos apresentados. Restrinja os filtros para ver o resto.",
+    "allServices": "Todos os serviços",
+    "severity": {
+      "all": "Todas as gravidades",
+      "warning": "Avisos e erros",
+      "error": "Apenas erros"
+    },
+    "levels": {
+      "debug": "Depuração",
+      "info": "Info",
+      "warning": "Aviso",
+      "error": "Erro",
+      "critical": "Crítico"
     }
   },
   "timezone": {

@@ -23,6 +23,20 @@ const routes = [
       title: 'Milō — Components',
       chrome: false
     }
+  },
+  {
+    // The logs page (Settings › System). Lazily imported for the same reason
+    // as the gallery: whoever never opens it pays nothing. A full page with no
+    // chrome — no Dock over its last rows, no modal over it (App.vue renders
+    // none on a chrome-less route) — read as much from a phone as from the
+    // panel; it carries its own way back.
+    path: '/logs',
+    name: 'logs',
+    component: () => import('@/views/LogsView.vue'),
+    meta: {
+      title: 'Milō — Logs',
+      chrome: false
+    }
   }
 ];
 

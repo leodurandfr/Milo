@@ -30,6 +30,7 @@ from backend.config.constants import (
     get_client_display_name,
 )
 from backend.shared.background import BackgroundTaskSet
+from backend.shared import timing
 
 if TYPE_CHECKING:
     from backend.core.settings import SettingsService
@@ -1405,6 +1406,9 @@ class SnapcastWebSocketService:
                 # back to the store, so one read before an await undid a move.
                 target_volume = self._resolve_target_volume(mac_id)
                 self._say(mac_id, logging.INFO, f"SYNC_RECONNECT: {mac_id} target={target_volume:.1f} dB")
+                # This attempt → shown online; an attempt that fails is not
+                # stopped, and the retry wait is not timed (THRESHOLDS_MS).
+                admission = timing.start("multiroom.admission", mac_id)
                 volume_synced = pinned and await self._apply_target_volume_to_client(mac_id, target_volume)
                 if volume_synced:
                     # Re-push the client's EQ record now that it's reachable again.
@@ -1435,6 +1439,7 @@ class SnapcastWebSocketService:
                     # Volume confirmed on hardware — now safe to show online
                     if set_online_after and self.registry:
                         await self.registry.set_client_online(mac_id, True)
+                        admission.stop()
                         await self._deliver_what_moved_during_admission(
                             mac_id, pushed_delay_ms, snapcast_id
                         )

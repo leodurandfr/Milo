@@ -1033,6 +1033,11 @@
       "hidePreview": "Bericht ausblenden",
       "notCollected": "Konnte nicht erfasst werden:"
     },
+    "logs": {
+      "title": "Protokolle",
+      "description": "Was Milō und seine Lautsprecher zuletzt aufgezeichnet haben, gruppiert und durchsuchbar. Netzwerk-, Freigabe- und Lautsprechernamen werden ersetzt, daher kann die Seite geteilt werden.",
+      "open": "Protokolle öffnen"
+    },
     "licenses": {
       "title": "Lizenzen von Drittanbietern",
       "description": "Die Programme, auf denen Milō aufbaut, mit Version und Lizenz, und wie sich der Quellcode beziehen lässt, den diese Lizenzen vorsehen.",
@@ -1044,6 +1049,33 @@
       "action": "Zurücksetzen",
       "confirm": "Zurücksetzen bestätigen?",
       "running": "Neustart…"
+    }
+  },
+  "logs": {
+    "refresh": "Protokolle erneut lesen",
+    "search": "Protokolle durchsuchen",
+    "readFailed": "Die Protokolle konnten nicht gelesen werden.",
+    "truncated": "Journalzeilen vor {time} sind nicht enthalten: Der Zeitraum enthält mehr, als ein Lesevorgang liefert.",
+    "empty": "Keine Zeile entspricht diesen Filtern.",
+    "count": "×{count}",
+    "firstSeen": "Zuerst gesehen {time}",
+    "contextFailed": "Die Zeilen um diese herum konnten nicht gelesen werden.",
+    "copy": "Zur Korrektur kopieren",
+    "copied": "Zur Korrektur kopiert",
+    "copyFailed": "Kopieren fehlgeschlagen. Markieren Sie die Zeilen und kopieren Sie sie von Hand.",
+    "more": "{shown} von {total} Ereignissen angezeigt. Grenzen Sie die Filter ein, um den Rest zu sehen.",
+    "allServices": "Alle Dienste",
+    "severity": {
+      "all": "Alle Schweregrade",
+      "warning": "Warnungen und Fehler",
+      "error": "Nur Fehler"
+    },
+    "levels": {
+      "debug": "Debug",
+      "info": "Info",
+      "warning": "Warnung",
+      "error": "Fehler",
+      "critical": "Kritisch"
     }
   },
   "timezone": {
