@@ -345,6 +345,7 @@ async def test_the_reconcile_calls_nothing_when_the_dropin_agrees(monkeypatch, s
     helper = _FakeHelper()
     dropin = tmp_path / "retention.conf"
 
+    await settings.set_setting("system.log_retention_days", 7)
     await _service(monkeypatch, settings, dropin, helper).reconcile()
 
     dropin.write_text("[Journal]\nMaxRetentionSec=15d\nSystemMaxUse=160M\n")
@@ -373,6 +374,22 @@ async def test_the_reconcile_applies_the_setting_when_the_dropin_disagrees(
     await _service(monkeypatch, settings, dropin, helper).reconcile()
 
     assert helper.calls == [(("sudo", "-n", constants.SET_JOURNAL_RETENTION_CMD), f"{setting}\n".encode())]
+
+
+async def test_a_fresh_server_brings_journald_to_the_default_at_its_first_start(monkeypatch, settings, tmp_path):
+    """No settings.json and no drop-in: the rootfs file says seven, the default is longer.
+
+    Without this call a freshly flashed server would keep 7 days while
+    Troubleshooting showed the default, and the logs page offered a window the
+    journal does not reach.
+    """
+    helper = _FakeHelper()
+    dropin = tmp_path / "retention.conf"
+    default = settings.defaults["system"]["log_retention_days"]
+
+    await _service(monkeypatch, settings, dropin, helper).reconcile()
+
+    assert helper.calls == [(("sudo", "-n", constants.SET_JOURNAL_RETENTION_CMD), f"{default}\n".encode())]
 
 
 @pytest.mark.parametrize("helper", [

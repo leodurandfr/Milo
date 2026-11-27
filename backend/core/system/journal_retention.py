@@ -11,7 +11,8 @@ ends:
     only once the helper has taken it (`apply`), so the setting never names a
     retention journald does not have;
   * at each start the drop-in is read back and the helper called only when it
-    disagrees with the setting (`reconcile`) — a settings.json set aside, a
+    disagrees with the setting (`reconcile`) — a fresh image (the setting's
+    default is 15 days, the rootfs file's 7), a settings.json set aside, a
     drop-in removed by hand, a setting restored from a backup. The drop-in lives
     outside every tree an update deploys, so nothing else moves it.
 

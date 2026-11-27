@@ -203,9 +203,10 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // How long the server keeps its journal, in days (7, 15 or 30): Settings ›
-  // System › Advanced, Troubleshooting.
+  // System › Advanced, Troubleshooting. 15 until /bulk says otherwise (the
+  // server's default).
   const logRetention = ref({
-    log_retention_days: 7
+    log_retention_days: 15
   });
 
   // light | dark | auto — the theme of every browser showing Milō (useTheme).

@@ -181,7 +181,10 @@ class SettingsService:
                 # 7, 15 or 30 (ALLOWED_LOG_RETENTION_DAYS). Applied by
                 # milo-set-journal-retention, and again at each start when the
                 # drop-in it owns disagrees (core/system/journal_retention.py).
-                "log_retention_days": 7
+                # 15 by default (owner decision 2026-11-27): the rootfs file
+                # keeps 7, its satellite twin's value, so a fresh server's
+                # first start writes the 15-day drop-in.
+                "log_retention_days": 15
             },
             "updates": {
                 # {program_key: version} — a version deliberately installed past
