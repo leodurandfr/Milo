@@ -3,7 +3,7 @@
 
 # REST operations
 
-The 225 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
+The 226 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
 
 **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
@@ -299,6 +299,7 @@ The 225 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | `GET` | `/api/settings/mac-roc/calibration` |  | untyped JSON | internal |
 | `POST` | `/api/settings/mac-roc/calibration` |  | untyped JSON | internal |
 | `DELETE` | `/api/settings/mac-roc/calibration` |  | untyped JSON | internal |
+| `PUT` | `/api/settings/log-retention` | LogRetentionRequest | untyped JSON | internal |
 | `PUT` | `/api/settings/radio-settings` | RadioSettingsRequest | untyped JSON | internal |
 | `PUT` | `/api/settings/music-library-settings` | MusicLibrarySettingsRequest | untyped JSON | internal |
 | `PUT` | `/api/settings/qobuz-settings` | QobuzSettingsRequest | untyped JSON | internal |

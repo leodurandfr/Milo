@@ -35,6 +35,7 @@ import pytest
 
 from backend.core.log_handler import errors_log_formatter
 from backend.core.multiroom.models import Client
+from backend.core.settings import SettingsService
 from backend.core.system.diagnostic import probes
 from backend.core.system.diagnostic import service as diagnostic_module
 from backend.core.system.diagnostic.service import DiagnosticService
@@ -253,11 +254,14 @@ def unit(monkeypatch, tmp_path):
     diagnostic = DiagnosticService(network_service=_Network(), registry_service=_Registry([speaker]))
 
     errors_log = tmp_path / "errors.log"
+    settings = SettingsService()
+    settings.settings_file = str(tmp_path / "settings.json")
     service = LogService(
         diagnostic_service=diagnostic,
         version_service=_Version(),
         state_machine=_StateMachine(),
         error_log=errors_log,
+        settings_service=settings,
     )
     service.firmware = SimpleNamespace(asked=asked, throttled=throttled)
     service.speaker_blocks = None

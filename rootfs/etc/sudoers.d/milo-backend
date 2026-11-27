@@ -54,6 +54,8 @@ milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-password
 # System timezone
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-timezone
+# How long the journal is kept (reads 7, 15 or 30 on stdin, so no argument at all)
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-journal-retention ""
 # Music Library USB storage (read-only mount / unmount under /media/milo)
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-mount
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-umount

@@ -1043,7 +1043,9 @@
     "logs": {
       "title": "Protokolle",
       "description": "Was Milō und seine Lautsprecher zuletzt aufgezeichnet haben, gruppiert und durchsuchbar. Netzwerk-, Freigabe- und Lautsprechernamen werden ersetzt, daher kann die Seite geteilt werden.",
-      "open": "Protokolle öffnen"
+      "open": "Protokolle öffnen",
+      "retention": "Aufbewahrung des Systemjournals",
+      "retentionDescription": "Das Systemjournal bleibt so lange auf der SD-Karte. Ein längerer Zeitraum lässt die Protokolle weiter zurückreichen und belegt mehr Platz auf der Karte."
     },
     "reset": {
       "title": "Konfiguration zurücksetzen",

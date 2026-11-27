@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, Optional, get_args
 from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
     ALLOWED_LATENCY_PROFILES,
+    ALLOWED_LOG_RETENTION_DAYS,
     ALLOWED_PACKET_LENGTHS,
     ALLOWED_SCREEN_THEMES,
     AUDIO_SOURCE_APPS,
@@ -174,6 +175,13 @@ class SettingsService:
             },
             "wifi": {
                 "country": ""
+            },
+            "system": {
+                # How long the systemd journal is kept on the SD card, in days:
+                # 7, 15 or 30 (ALLOWED_LOG_RETENTION_DAYS). Applied by
+                # milo-set-journal-retention, and again at each start when the
+                # drop-in it owns disagrees (core/system/journal_retention.py).
+                "log_retention_days": 7
             },
             "updates": {
                 # {program_key: version} — a version deliberately installed past
@@ -496,6 +504,19 @@ class SettingsService:
         country_valid = len(country_raw) == 2 and country_raw.isalpha() and country_raw.isupper()
         validated['wifi'] = {
             'country': country_raw if country_valid else d['wifi']['country']
+        }
+
+        # Journal retention: one of the three periods offered, else the
+        # default, as a theme outside the three is. An int exactly: `15.0`
+        # compares equal to 15 and is not a value the helper reads.
+        system_input = settings.get('system', {})
+        retention = system_input.get('log_retention_days', d['system']['log_retention_days'])
+        validated['system'] = {
+            'log_retention_days': (
+                retention
+                if type(retention) is int and retention in ALLOWED_LOG_RETENTION_DAYS
+                else d['system']['log_retention_days']
+            )
         }
 
         # Forced program versions. Shape only — which keys name a program is the

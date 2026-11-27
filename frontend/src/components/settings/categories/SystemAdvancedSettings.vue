@@ -3,8 +3,8 @@
      something goes wrong, kept one level below System so it does not sit in
      everyday view. How to reach the unit (SSH, with the account password one
      level down; SSH stays closed on the factory password), how to see what
-     went wrong (the logs page, a page of its own at /logs, and the report to
-     send), and the reset last. -->
+     went wrong (the logs page, a page of its own at /logs, how long the
+     journal it reads is kept, and the report to send), and the reset last. -->
 <template>
   <SectionStack>
     <SshSection :state="ssh" host="milo.local" user="milo" :busy="sshBusy" :error="sshError"
@@ -24,6 +24,14 @@
           {{ t('system.logs.open') }}
         </Button>
       </div>
+
+      <!-- How long the server keeps its journal, which bounds the periods the
+           logs page offers. Applied by the server before it is stored. -->
+      <SettingItem :label="t('system.logs.retention')" :hint="t('system.logs.retentionDescription')">
+        <ButtonGroup :model-value="settingsStore.logRetention.log_retention_days"
+          :options="retentionOptions" @change="setRetention" />
+      </SettingItem>
+      <SettingsRefusal :detail="refusal" />
 
       <div class="troubleshooting-item">
         <span class="text-body-medium">{{ t('system.diagnostic.title') }}</span>
@@ -88,7 +96,12 @@ import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import { useTimer } from '@/composables/useTimer';
 import { useSystemStore } from '@/stores/systemStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { writeToClipboard } from '@/utils/clipboard';
+import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
@@ -97,11 +110,23 @@ import SshSection from '@/components/settings/categories/SshSection.vue';
 
 defineEmits(['open-password']);
 
-const { t } = useI18n();
+const { t, formatUnit } = useI18n();
 const router = useRouter();
 const timer = useTimer();
 const systemStore = useSystemStore();
 const { ssh } = storeToRefs(systemStore);
+const settingsStore = useSettingsStore();
+// The store is drawn as it is, so a refused write needs no resync of its own.
+const { updateSetting, refusal } = useSettingsAPI();
+
+// The three periods the server takes (system.log_retention_days).
+const retentionOptions = computed(() => [7, 15, 30]
+  .map(days => ({ value: days, label: formatUnit(days, 'd', { unitDisplay: 'long' }) })));
+
+function setRetention(days) {
+  settingsStore.updateLogRetention({ log_retention_days: days });
+  updateSetting('log-retention', { log_retention_days: days });
+}
 
 const sshBusy = ref(false);
 const sshError = ref(null);

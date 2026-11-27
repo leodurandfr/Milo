@@ -1043,7 +1043,9 @@
     "logs": {
       "title": "Journaux",
       "description": "Ce que Milō et ses enceintes ont enregistré récemment, regroupé et consultable. Les noms de réseau, de partage et d'enceinte sont remplacés : la page peut être partagée.",
-      "open": "Ouvrir les journaux"
+      "open": "Ouvrir les journaux",
+      "retention": "Durée de conservation du journal",
+      "retentionDescription": "Le journal système reste sur la carte SD pendant cette durée. Une durée plus longue permet aux journaux de remonter plus loin et occupe plus de place sur la carte."
     },
     "reset": {
       "title": "Réinitialiser la configuration",

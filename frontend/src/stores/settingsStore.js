@@ -202,6 +202,12 @@ export const useSettingsStore = defineStore('settings', () => {
     edge_inset_mm: 0
   });
 
+  // How long the server keeps its journal, in days (7, 15 or 30): Settings ›
+  // System › Advanced, Troubleshooting.
+  const logRetention = ref({
+    log_retention_days: 7
+  });
+
   // light | dark | auto — the theme of every browser showing Milō (useTheme).
   const screenTheme = ref({
     theme: 'auto'
@@ -293,6 +299,7 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(qobuzSettings, d.qobuz_settings);
         setIfChanged(spotifySettings, d.spotify_settings);
         setIfChanged(macRocSettings, d.mac_roc);
+        setIfChanged(logRetention, d.log_retention);
         isLoaded.value = true;
         logger.info('settings', 'All settings loaded successfully');
       }
@@ -596,6 +603,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateQobuzSettings = makeUpdater(qobuzSettings);
   const updateSpotifySettings = makeUpdater(spotifySettings);
   const updateMacRocSettings = makeUpdater(macRocSettings);
+  const updateLogRetention = makeUpdater(logRetention);
 
   /**
    * Update setup_completed state (from WebSocket initial_state)
@@ -674,6 +682,7 @@ export const useSettingsStore = defineStore('settings', () => {
     qobuzSettings,
     spotifySettings,
     macRocSettings,
+    logRetention,
     btRemote,
     irRemote,
     isScreenSleeping,
@@ -709,6 +718,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateQobuzSettings,
     updateSpotifySettings,
     updateMacRocSettings,
+    updateLogRetention,
     updateBtRemoteConfig,
     updateBtRemoteStatus,
     loadBtRemoteStatus,

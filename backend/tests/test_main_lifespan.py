@@ -127,6 +127,7 @@ def boot(monkeypatch):
         "hostname_conflict_service": _torn_down("hostname_conflict"),
         "push_service": _torn_down("push_service"),
         "apns_client": _torn_down("apns"),
+        "journal_retention_service": _torn_down("journal_retention"),
     }
     music_library = MagicMock()
     music_library.shares = _torn_down("music_library_shares")
@@ -447,6 +448,7 @@ class TestShutdownTable:
             "ir_remote_controller", "fan_controller", "connectivity", "network",
             "crossover_service", "hostname_conflict",
             "music_library_shares", "rotary_controller", "apns", "push_service",
+            "journal_retention",
         }
 
     async def test_every_hardware_controller_is_torn_down(self, boot):

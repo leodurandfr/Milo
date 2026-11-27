@@ -300,6 +300,7 @@ def test_bulk_settings_full_key_set():
         "mac_roc": {"target_latency_ms": 130, "latency_profile": "responsive", "frame_length_ms": 10,
                     "packet_length_ms": 5, "fec_block_source": 12, "fec_block_repair": 6,
                     "packet_interleaving": True},
+        "log_retention": {"log_retention_days": 15},
     }
     out = emit(R.BulkSettingsResponse, data)
     assert set(out) == set(data)

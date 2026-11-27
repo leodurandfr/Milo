@@ -214,6 +214,11 @@ def _create_service(name: str) -> Any:
         "notice_service": lambda: _import("backend.core.system.notices", "SetAsideNotices")(
             state_machine=get_service("audio_state_machine"),
         ),
+        # How long the journal is kept: the one caller of milo-set-journal-retention,
+        # and the reconcile of its drop-in with the setting at each start.
+        "journal_retention_service": lambda: _import(
+            "backend.core.system.journal_retention", "JournalRetentionService"
+        )(settings_service=get_service("settings_service")),
         "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(systemd_manager=get_service("systemd_manager")),
         "connectivity_service": lambda: _import("backend.core.connectivity", "ConnectivityService")(),
 
@@ -244,6 +249,7 @@ def _create_service(name: str) -> Any:
             diagnostic_service=get_service("diagnostic_service"),
             version_service=get_service("satellite_update_service"),
             state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
         ),
 
         # Lyrics (transverse Lyrics app — LRCLIB lookup + disk cache; no source, no boot init)
@@ -635,6 +641,9 @@ async def initialize_services() -> None:
             # The set-asides kept from earlier boots, and this boot's so far
             # (STEP 3b's among them)
             ("notice_service", notice_service.initialize()),
+            # The journal's retention put back in step with the setting, in the
+            # background (fail-open without the helper, on a dev host)
+            ("journal_retention_service", get_service("journal_retention_service").initialize()),
         ]
 
         results = await asyncio.gather(

@@ -163,3 +163,9 @@ class BtRemoteConfig(BaseModel):
     enabled: bool
     device_name_filter: str
     key_map: Dict[str, str]
+
+
+class LogRetentionConfig(BaseModel):
+    """How long the server keeps its systemd journal on the SD card, in days:
+    7, 15 or 30. The logs page offers no period longer than this."""
+    log_retention_days: int

@@ -396,6 +396,7 @@ async def lifespan(app: FastAPI):
         ("music_library_shares", get_service("music_library_source").shares.cleanup),
         ("push_service", get_service("push_service").cleanup),
         ("notices", notice_service.cleanup),
+        ("journal_retention", get_service("journal_retention_service").cleanup),
         ("apns", get_service("apns_client").cleanup),
         # Each source's mailbox: its task is ended and a caller still waiting
         # is answered, so nothing is left pending on a closing loop.
@@ -513,6 +514,7 @@ settings_router = create_settings_router(
     get_service("multiroom_equalizer_service"),
     get_service("mac_link_calibration_service"),
     update_service=update_service,
+    journal_retention_service=get_service("journal_retention_service"),
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 

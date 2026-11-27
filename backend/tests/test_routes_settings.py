@@ -1230,6 +1230,7 @@ class TestBulkSettings:
         ("mac_roc", "fec_block_source"): ("mac", "fec_block_source"),
         ("mac_roc", "fec_block_repair"): ("mac", "fec_block_repair"),
         ("mac_roc", "packet_interleaving"): ("mac", "packet_interleaving"),
+        ("log_retention", "log_retention_days"): ("system", "log_retention_days"),
     }
 
     @staticmethod
@@ -1281,6 +1282,7 @@ class TestBulkSettings:
         ("mac", "frame_length_ms"): 6,
         ("dock", "enabled_apps"): ["radio"],
         ("screen", "theme"): "dark",
+        ("system", "log_retention_days"): 30,
     }
 
     @classmethod

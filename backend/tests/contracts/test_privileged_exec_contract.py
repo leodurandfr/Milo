@@ -361,8 +361,9 @@ def _issued_argvs(tree_name: str) -> list[tuple[str, tuple]]:
 # --------------------------------------------------------------------------- #
 
 # sudoers' spelling of "this command with no argument at all" — the grant of a
-# satellite helper that reads its input on stdin (milo-client-set-timezone,
-# milo-client-join-wifi, milo-set-password) or takes none
+# helper that refuses every argument, reading its input on stdin
+# (milo-client-set-timezone, milo-client-join-wifi and milo-set-password on a
+# satellite, milo-set-journal-retention on the server) or taking none
 # (milo-client-finish-dpkg).
 NO_ARGUMENTS = ('""',)
 
@@ -456,20 +457,22 @@ def test_argument_scoped_grants_stay_argument_scoped():
     assert not _matches((command, "restart", *args[1:]), command, args)
 
 
-def test_a_no_argument_grant_permits_the_bare_command_only():
+@pytest.mark.parametrize("tree_name", sorted(TREES))
+def test_a_no_argument_grant_permits_the_bare_command_only(tree_name):
     """`""` is the narrowest grant sudoers has, and it must be read as one.
 
     Read as the literal argument `""`, it matched no call and the grant
-    reported itself unused; read as "any", an argv carrying the zone would pass
-    here and be refused by sudo on the satellite.
+    reported itself unused; read as "any", an argv carrying the zone (or the
+    days) would pass here and be refused by sudo on the unit.
     """
-    no_argument = [g for g in _all_grants("milo-client") if g[2] == NO_ARGUMENTS]
-    assert no_argument, "no `\"\"` grant parsed in the satellite policy"
+    no_argument = [g for g in _all_grants(tree_name) if g[2] == NO_ARGUMENTS]
+    assert no_argument, f"no `\"\"` grant parsed in the {tree_name} policy"
 
-    _, command, args = no_argument[0]
-    assert _matches((command,), command, args)
-    assert not _matches((command, "Europe/Paris"), command, args)
-    assert not _matches((command, '""'), command, args)
+    for _, command, args in no_argument:
+        assert _matches((command,), command, args)
+        assert not _matches((command, "Europe/Paris"), command, args)
+        assert not _matches((command, "15"), command, args)
+        assert not _matches((command, '""'), command, args)
 
 
 # How a helper refuses any argument: its input comes on stdin, or it takes
@@ -477,7 +480,19 @@ def test_a_no_argument_grant_permits_the_bare_command_only():
 ARGV_REFUSAL = re.compile(r"^\s*if \(\(\s*\$#\s*!=\s*0\s*\)\)", re.MULTILINE)
 
 
-def test_a_helper_that_refuses_every_argument_is_granted_none():
+# The helpers that refuse every argument and are granted bare all the same, by
+# decision: the server's `milo-set-password`, whose grant stays unscoped because
+# narrowing it closes nothing while a bare `systemctl` stands (invariant 5). Its
+# own refusal is then the only one. A helper added on the server is granted
+# `""` like any other: this set is not where a new one goes.
+GRANTED_BARE_BY_DECISION = {
+    "backend": {"/usr/local/bin/milo-set-password"},
+    "milo-client": set(),
+}
+
+
+@pytest.mark.parametrize("tree_name", sorted(TREES))
+def test_a_helper_that_refuses_every_argument_is_granted_none(tree_name):
     """The grant and the helper must agree that no argv belongs on this command line.
 
     A bare grant on a helper that takes none lets sudo run it as root with an
@@ -485,31 +500,39 @@ def test_a_helper_that_refuses_every_argument_is_granted_none():
     future edit of the helper that starts reading `$1` reads it unvetted. A `""`
     grant on a helper that does not refuse one leaves the helper wide open
     wherever it is reached without that policy (by hand, as root, or through the
-    server's bare grant of the twin `milo-set-password`). Satellite only: the
-    server's grants are scoped by binary alone, and narrowing one closes nothing
-    while a bare `systemctl` stands (invariant 5).
+    server's bare grant of the twin `milo-set-password`). On the server the one
+    exception is that grant (`GRANTED_BARE_BY_DECISION`); every other helper
+    there that refuses every argument — `milo-set-journal-retention` — is
+    held to the satellite's rule.
     """
-    rootfs = TREES["milo-client"]["rootfs"]
-    grants = [(c, a) for _, c, a in _all_grants("milo-client") if c.startswith("/usr/local/bin/")]
+    rootfs = TREES[tree_name]["rootfs"]
+    grants = [(c, a) for _, c, a in _all_grants(tree_name) if c.startswith("/usr/local/bin/")]
     refusing = {
         command for command, _ in grants
         if ARGV_REFUSAL.search((rootfs / command.lstrip("/")).read_text(encoding="utf-8"))
     }
     granted_none = {command for command, args in grants if args == NO_ARGUMENTS}
+    bare_by_decision = GRANTED_BARE_BY_DECISION[tree_name]
     # Either side read empty would let the equality below pass on nothing.
     assert refusing and granted_none, (
         f"refusing {sorted(refusing)}, granted none {sorted(granted_none)}: an extractor is broken"
     )
+    # An exception that no longer refuses, or is no longer granted, is stale.
+    assert bare_by_decision <= refusing - granted_none, (
+        f"{sorted(bare_by_decision)} no longer refuse every argument under a bare grant"
+    )
 
-    assert refusing == granted_none, (
-        f"refuse every argument but are not granted with none: {sorted(refusing - granted_none)}; "
+    assert refusing - bare_by_decision == granted_none, (
+        "refuse every argument but are not granted with none: "
+        f"{sorted(refusing - bare_by_decision - granted_none)}; "
         f"granted none but accept an argument: {sorted(granted_none - refusing)}"
     )
     # sudo matches each line on its own, so a second, bare line for the same
     # helper is the one that matches every argv the `""` line refuses.
     granted_more = {command for command, args in grants if args != NO_ARGUMENTS}
-    assert not refusing & granted_more, (
-        f"refuse every argument but hold a grant besides `\"\"`: {sorted(refusing & granted_more)}"
+    assert not (refusing - bare_by_decision) & granted_more, (
+        "refuse every argument but hold a grant besides `\"\"`: "
+        f"{sorted((refusing - bare_by_decision) & granted_more)}"
     )
 
 

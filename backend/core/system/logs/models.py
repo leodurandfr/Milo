@@ -74,6 +74,9 @@ class LogsPage(BaseModel):
     # Null when it could not be read, which `not_collected` says.
     throttling: Optional[Throttling] = None
     not_collected: List[NotCollected]
+    # How long the journal is kept, in days (`system.log_retention_days`): the
+    # page offers no period past it.
+    retention_days: int
 
 
 class RunningBuild(BaseModel):

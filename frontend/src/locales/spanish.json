@@ -1043,7 +1043,9 @@
     "logs": {
       "title": "Registros",
       "description": "Lo que Milō y sus altavoces han registrado recientemente, agrupado y con búsqueda. Los nombres de red, de recurso compartido y de altavoz se sustituyen, así que la página puede compartirse.",
-      "open": "Abrir los registros"
+      "open": "Abrir los registros",
+      "retention": "Conservación del registro del sistema",
+      "retentionDescription": "El registro del sistema se conserva en la tarjeta SD durante este tiempo. Un periodo más largo permite que los registros lleguen más atrás y ocupa más espacio en la tarjeta."
     },
     "reset": {
       "title": "Restablecer la configuración",

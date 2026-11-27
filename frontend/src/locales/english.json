@@ -1043,7 +1043,9 @@
     "logs": {
       "title": "Logs",
       "description": "What Milō and its speakers recorded recently, grouped and searchable. Network, share and speaker names are replaced, so the page can be shared.",
-      "open": "Open the logs"
+      "open": "Open the logs",
+      "retention": "Journal kept for",
+      "retentionDescription": "The system journal stays on the SD card for this long. A longer period lets the logs reach further back and takes more room on the card."
     },
     "reset": {
       "title": "Reset configuration",

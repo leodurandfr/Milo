@@ -108,6 +108,8 @@ SETTINGS_ALLOWED = frozenset({
     # The regulatory domain, not the network: a country code is what explains an
     # access point that will not come up and a 5 GHz band that is missing.
     "wifi.country",
+    # How far back the journal a report or the logs page reads can reach.
+    "system.log_retention_days",
     "updates.forced_versions.*",
     # Per MAC, the app push a satellite did not take: payload, verdict, time and
     # the satellite's own error line — a line its journal block already carries.

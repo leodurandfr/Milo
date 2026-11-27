@@ -1,0 +1,171 @@
+#!/bin/bash
+# milo-set-journal-retention — How long this server keeps its systemd journal
+#
+# Usage: printf '%s\n' "<DAYS>" | milo-set-journal-retention
+#   DAYS: 7, 15 or 30 — the three periods Settings › System › Advanced offers
+#   (`system.log_retention_days`), and nothing else.
+#
+# The image keeps the journal on the SD card for 7 days, under 100 MB
+# (`/etc/systemd/journald.conf.d/99-milo-journald.conf`, shipped by rootfs/).
+# A longer period is a drop-in of this helper's own, beside it and named to
+# sort after it — journald reads every drop-in in lexical order of its name,
+# and the last value of a key wins:
+#
+#   7   removes the drop-in, so the 7-day caps stay declared once, in the
+#       rootfs file;
+#   15  writes MaxRetentionSec=15d and SystemMaxUse=160M;
+#   30  writes MaxRetentionSec=30d and SystemMaxUse=300M.
+#
+# The sizes follow a measurement on a unit (2026-11-27): 8.4 MB a day, 54.3 MB
+# for 6.5 days, so each cap holds its period with room for a noisy week.
+#
+# The drop-in is outside every tree this checkout deploys: `milo-deploy-update
+# sync-system-files` installs rootfs/ over / and removes nothing, so an update
+# leaves the drop-in where it is, and the backend's reconcile at each start
+# (`core/system/journal_retention.py`) puts it back in step with the setting
+# when something else moved it.
+#
+# The value comes on **stdin**, and the policy grants this helper with no
+# argument at all (`""`): an argument is refused here too, whatever it says.
+# Nothing a caller chooses decides where this writes — no argument, no
+# environment variable: sudo would hand either one over as the caller wrote it.
+# The input is the bytes "7", "15" or "30", with one newline after them at
+# most; anything else ("07", " 7", "7d", "8", nothing, a second line) is
+# refused before anything is touched.
+#
+# systemd-journald is restarted only when the drop-in changed: it reads its
+# configuration at start. A restart that fails puts the drop-in back as it was
+# (the previous one, or none), so a second call meets the change still to make
+# and restarts journald then, rather than reading "unchanged" over a journald
+# that never took it.
+#
+# Exit 2: the value was refused; 1: anything else. Prints what it did.
+# Must be run as root (via sudoers rule).
+
+set -euo pipefail
+# Bracket ranges and byte counts are bytes only in the C locale.
+export LC_ALL=C
+
+DROPIN_DIR="/etc/systemd/journald.conf.d"
+DROPIN_NAME="99-milo-retention.conf"
+# More than any accepted input holds ("30\n"), so a longer one is seen.
+INPUT_MAX_BYTES=8
+
+refuse() {
+    echo "ERROR: $1" >&2
+    exit 2
+}
+
+if (( $# != 0 )); then
+    echo "ERROR: takes no argument; the number of days comes on stdin" >&2
+    exit 1
+fi
+
+# A terminal on stdin means the caller passed nothing to read; the read below
+# would block forever holding a sudo session open.
+if [[ -t 0 ]]; then
+    echo "ERROR: the number of days must be piped on stdin" >&2
+    exit 1
+fi
+# So does a closed stdin, which sudo never hands over (it opens /dev/null in
+# its place) but a root shell can: bash would give fd 0 to the pipe of the
+# read below, and `head` would wait on its own output.
+if ! { : 3<&0; } 2>/dev/null; then
+    echo "ERROR: stdin is closed; the number of days must be piped on it" >&2
+    exit 1
+fi
+
+# Compared byte for byte, as hex: a shell variable cannot hold a NUL, and `read`
+# would stop at one and let what follows it pass unseen.
+hex() { od -An -v -tx1 | tr -d ' \n'; }
+received=$(head -c "$INPUT_MAX_BYTES" | hex)
+
+DAYS=""
+for accepted in 7 15 30; do
+    if [[ "$received" == "$(printf '%s' "$accepted" | hex)" \
+       || "$received" == "$(printf '%s\n' "$accepted" | hex)" ]]; then
+        DAYS="$accepted"
+    fi
+done
+[[ -n "$DAYS" ]] || refuse "the number of days must be 7, 15 or 30 (received bytes: ${received:-none})"
+
+DROPIN="$DROPIN_DIR/$DROPIN_NAME"
+# The drop-in in place before this run, kept aside under a name journald does
+# not read (no .conf) until journald has restarted on the new one; empty when
+# there was none.
+PREVIOUS=""
+TMP=""
+cleanup() {
+    [[ -z "$TMP" ]] || rm -f -- "$TMP"
+    [[ -z "$PREVIOUS" ]] || rm -f -- "$PREVIOUS"
+}
+trap cleanup EXIT
+
+keep_previous() {
+    [[ -e "$DROPIN" ]] || return 0
+    PREVIOUS=$(mktemp "$DROPIN_DIR/.milo-retention-previous.XXXXXX")
+    cp -p -- "$DROPIN" "$PREVIOUS"
+}
+
+# On a failed restart, the directory goes back to what it held before this
+# run: journald still runs on the old caps, and the file must say so.
+restart_journald_or_put_back() {
+    if systemctl restart systemd-journald; then
+        echo "systemd-journald restarted"
+        return 0
+    fi
+    if [[ -n "$PREVIOUS" ]]; then
+        mv -f -- "$PREVIOUS" "$DROPIN"
+        PREVIOUS=""
+    else
+        rm -f -- "$DROPIN"
+    fi
+    echo "ERROR: systemd-journald did not restart; $DROPIN put back as it was" >&2
+    exit 1
+}
+
+if [[ "$DAYS" == 7 ]]; then
+    if [[ ! -e "$DROPIN" ]]; then
+        echo "journal retention: 7 days, unchanged"
+        exit 0
+    fi
+    keep_previous
+    rm -f -- "$DROPIN"
+    echo "journal retention: 7 days, $DROPIN removed"
+    restart_journald_or_put_back
+    exit 0
+fi
+
+case "$DAYS" in
+    15) MAX_USE="160M" ;;
+    30) MAX_USE="300M" ;;
+esac
+
+# Written where no tree deploys anything: `milo-deploy-update sync-system-files`
+# copies rootfs/ over / and removes nothing, so this drop-in survives every
+# update, and only this helper (and the backend's reconcile through it) moves it.
+CONTENT="# Written by milo-set-journal-retention (Settings › System › Advanced).
+# Overrides the 7-day caps of 99-milo-journald.conf, which sorts before it.
+[Journal]
+MaxRetentionSec=${DAYS}d
+SystemMaxUse=${MAX_USE}
+"
+
+if [[ -f "$DROPIN" && "$(cat -- "$DROPIN"; printf x)" == "${CONTENT}x" ]]; then
+    echo "journal retention: $DAYS days, unchanged"
+    exit 0
+fi
+
+mkdir -p -- "$DROPIN_DIR"
+keep_previous
+# Beside the drop-in, so the rename is atomic, and under a name journald does
+# not read (no .conf) while it is being written.
+TMP=$(mktemp "$DROPIN_DIR/.milo-retention.XXXXXX")
+printf '%s' "$CONTENT" > "$TMP"
+chmod 0644 -- "$TMP"
+chown root:root -- "$TMP"
+mv -f -- "$TMP" "$DROPIN"
+TMP=""
+
+echo "journal retention: $DAYS days, $DROPIN written"
+restart_journald_or_put_back

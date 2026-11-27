@@ -23,6 +23,7 @@ from backend.config.constants import (
 )
 from backend.api.models import (
     LanguageRequest,
+    LogRetentionRequest,
     VolumeLimitsRequest,
     VolumeStartupRequest,
     VolumeStepsRequest,
@@ -64,6 +65,8 @@ from backend.core.models.ws_events import (
     IrRemoteStepsChanged,
     IrRemoteStepsConfig,
     LanguageChanged,
+    LogRetentionChanged,
+    LogRetentionConfig,
     MacRocChanged,
     MacRocConfig,
     RadioSettingsChanged,
@@ -99,6 +102,7 @@ from backend.core.models.ws_events import (
     VolumeStepsConfig,
 )
 from backend.core.multiroom.routing import MacEnv
+from backend.core.system.journal_retention import JournalRetentionError
 import logging
 import asyncio
 
@@ -108,6 +112,7 @@ if TYPE_CHECKING:
     from backend.core.multiroom.routing import AudioRoutingService
     from backend.core.settings import SettingsService
     from backend.core.state import AudioStateMachine
+    from backend.core.system.journal_retention import JournalRetentionService
     from backend.core.systemd import SystemdServiceManager
     from backend.core.updates.update import UpdateService
     from backend.core.volume.service import VolumeService
@@ -128,6 +133,7 @@ def create_settings_router(
     multiroom_equalizer_service: "MultiroomEqualizerService",
     mac_link_calibration: "MacLinkCalibrationService",
     update_service: Optional["UpdateService"] = None,
+    journal_retention_service: Optional["JournalRetentionService"] = None,
 ):
     """Settings router with proper app deactivation"""
     router = APIRouter()
@@ -282,6 +288,7 @@ def create_settings_router(
                 "allow_app_volume": all_settings['spotify']['allow_app_volume'],
                 "crossfade_applied_duration": _spotify_crossfade_applied(),
             },
+            "log_retention": {"log_retention_days": all_settings['system']['log_retention_days']},
             "mac_roc": {
                 "target_latency_ms": mac['target_latency_ms'],
                 "latency_profile": mac['latency_profile'],
@@ -1038,6 +1045,32 @@ def create_settings_router(
         async with api_error_handler("Error clearing the Mac link analysis", logger):
             mac_link_calibration.forget()
             return {"status": "success"}
+
+    # How long the journal is kept on the SD card. Applied before it is stored:
+    # a setting the helper did not take would name a retention journald does
+    # not have.
+    @router.put("/log-retention")
+    async def set_log_retention(payload: LogRetentionRequest):
+        days = payload.log_retention_days
+
+        async def setter():
+            if journal_retention_service is None:
+                logger.error("Journal retention not applied: no service to apply it")
+                raise HTTPException(status_code=503, detail="Journal retention service unavailable")
+            try:
+                await journal_retention_service.apply(days)
+            except (OSError, JournalRetentionError) as e:
+                logger.error("Journal retention of %d days not applied: %s", days, e)
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to apply the journal retention: {e}"
+                ) from e
+            return await settings.set_setting('system.log_retention_days', days)
+
+        return await _handle_setting_update(
+            setter=setter,
+            section='system',
+            build_event=lambda system: LogRetentionChanged(config=LogRetentionConfig(**system)),
+        )
 
     # Radio settings (Shazam recognition)
     @router.put("/radio-settings")

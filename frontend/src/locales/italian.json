@@ -1043,7 +1043,9 @@
     "logs": {
       "title": "Log",
       "description": "Ciò che Milō e i suoi altoparlanti hanno registrato di recente, raggruppato e ricercabile. I nomi di rete, di condivisione e di altoparlante sono sostituiti, quindi la pagina può essere condivisa.",
-      "open": "Apri i log"
+      "open": "Apri i log",
+      "retention": "Conservazione del journal di sistema",
+      "retentionDescription": "Il journal di sistema resta sulla scheda SD per questo periodo. Un periodo più lungo permette ai log di risalire più indietro e occupa più spazio sulla scheda."
     },
     "reset": {
       "title": "Reimposta la configurazione",

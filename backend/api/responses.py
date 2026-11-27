@@ -32,6 +32,7 @@ from backend.core.models.settings_config import (
     DockAppsConfig,
     DockVolumeConfig,
     IrRemoteStepsConfig,
+    LogRetentionConfig,
     MacRocConfig,
     MusicLibrarySettingsConfig,
     QobuzSettingsConfig,
@@ -241,6 +242,7 @@ class BulkSettingsResponse(BaseModel):
     qobuz_settings: QobuzSettingsConfig
     spotify_settings: SpotifySettingsConfig
     mac_roc: MacRocConfig
+    log_retention: LogRetentionConfig
 
 
 # --- Phase 2: network + remaining volume routes ----------------------------

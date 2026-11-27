@@ -142,8 +142,9 @@ class LogService:
 
     # Each journal read's cap, newest kept: two days of a quiet unit's
     # `milo-*` lines at every level, a few hours of a noisy one; seven days
-    # and more at warning and above, which journalctl filters before it. A
-    # window a read cuts is said so (`truncated`).
+    # and more at warning and above, which journalctl filters before it — a
+    # 15- or 30-day retention (`system.log_retention_days`) is not measured
+    # against it yet. A window a read cuts is said so (`truncated`).
     JOURNAL_MAX_ENTRIES = 5000
     # Lines of context on each side of an event, every service together.
     CONTEXT_LINES = 20
@@ -156,11 +157,15 @@ class LogService:
         version_service=None,
         state_machine=None,
         error_log: Path = ERROR_LOG_FILE,
+        *,
+        settings_service,
     ):
         self._diagnostic = diagnostic_service
         self._version = version_service
         self._state_machine = state_machine
         self._error_log = error_log
+        # Read for the journal's retention, which the page offers periods up to.
+        self._settings = settings_service
         # One answer's CPU work at a time (_in_thread).
         self._cpu = asyncio.Lock()
 
@@ -178,7 +183,9 @@ class LogService:
         """The groups of the window `since` back from now that pass the
         filters: `level` a minimum severity, `service` one service exactly,
         `q` a case-insensitive text matched against the redacted line; and
-        the Pi's throttling state as it is now."""
+        the Pi's throttling state as it is now, and how long the journal is
+        kept (`retention_days`)."""
+        retention_days = await self._settings.get_setting("system.log_retention_days")
         until = datetime.now(timezone.utc)
         start = until - since
         reads = journal.page_reads(since=start, until=until, level=level, cap=self.JOURNAL_MAX_ENTRIES)
@@ -238,6 +245,7 @@ class LogService:
                 warnings_whole=warnings_whole,
                 throttling=throttled,
                 not_collected=self._redacted_reasons(not_collected, sanitize),
+                retention_days=retention_days,
             )
 
         return await self._in_thread(answer)

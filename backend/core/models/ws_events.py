@@ -29,6 +29,7 @@ from backend.core.models.settings_config import (
     DockAppsConfig,
     DockVolumeConfig,
     IrRemoteStepsConfig,
+    LogRetentionConfig,
     MacRocConfig,
     MusicLibrarySettingsConfig,
     QobuzSettingsConfig,
@@ -698,6 +699,16 @@ class MusicLibrarySettingsChanged(SettingsEvent):
     """
     TYPE = "music_library_settings_changed"
     config: MusicLibrarySettingsConfig
+
+
+class LogRetentionChanged(SettingsEvent):
+    """How long the server keeps its systemd journal changed.
+
+    App.vue settings listener → settingsStore.updateLogRetention (Settings ›
+    System › Advanced, Troubleshooting).
+    """
+    TYPE = "log_retention_changed"
+    config: LogRetentionConfig
 
 
 class BtRemoteConfigChanged(SettingsEvent):

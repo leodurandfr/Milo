@@ -9,6 +9,7 @@ from backend.config.constants import (
     BT_REMOTE_ACTIONS,
     GPIO_MAX_PIN,
     GPIO_MIN_PIN,
+    LOG_RETENTION_DAYS,
     ROC_FEC_REPAIR_RANGE,
     ROC_FEC_SOURCE_RANGE,
     ROC_FRAME_LENGTHS,
@@ -580,6 +581,11 @@ class QobuzSettingsRequest(StrictModel):
 class MusicLibrarySettingsRequest(StrictModel):
     """Music Library settings request"""
     separate_storages: bool
+
+
+class LogRetentionRequest(StrictModel):
+    """How long the journal is kept, in days: one of the three periods offered."""
+    log_retention_days: LOG_RETENTION_DAYS
 
 
 class SpotifySettingsRequest(StrictModel):

@@ -1043,7 +1043,9 @@
     "logs": {
       "title": "Registos",
       "description": "O que o Milō e as suas colunas registaram recentemente, agrupado e pesquisável. Os nomes de rede, de partilha e de coluna são substituídos, pelo que a página pode ser partilhada.",
-      "open": "Abrir os registos"
+      "open": "Abrir os registos",
+      "retention": "Conservação do registo do sistema",
+      "retentionDescription": "O registo do sistema permanece no cartão SD durante este período. Um período mais longo permite que os registos recuem mais no tempo e ocupa mais espaço no cartão."
     },
     "reset": {
       "title": "Repor a configuração",

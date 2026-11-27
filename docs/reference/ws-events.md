@@ -5,7 +5,7 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-74 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+75 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
@@ -52,6 +52,7 @@ Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`.
 | [`settings/qobuz_settings_changed`](#settingsqobuz_settings_changed) | internal |
 | [`settings/spotify_settings_changed`](#settingsspotify_settings_changed) | internal |
 | [`settings/music_library_settings_changed`](#settingsmusic_library_settings_changed) | internal |
+| [`settings/log_retention_changed`](#settingslog_retention_changed) | internal |
 | [`settings/bt_remote_config_changed`](#settingsbt_remote_config_changed) | internal |
 | [`settings/bt_remote_status_changed`](#settingsbt_remote_status_changed) | internal |
 | [`settings/ir_remote_status_changed`](#settingsir_remote_status_changed) | internal |
@@ -520,6 +521,15 @@ The music library settings changed.
 |---|---|
 | `source` | "settings" |
 | `config` | [MusicLibrarySettingsConfig](#musiclibrarysettingsconfig) |
+
+### settings/log_retention_changed
+
+How long the server keeps its systemd journal changed.
+
+| Field | Type |
+|---|---|
+| `source` | "settings" |
+| `config` | [LogRetentionConfig](#logretentionconfig) |
 
 ### settings/bt_remote_config_changed
 
@@ -1041,6 +1051,14 @@ Crossfade between tracks, in ms (0 = disabled, gapless untouched), and whether t
 | Field | Type |
 |---|---|
 | `separate_storages` | boolean |
+
+### LogRetentionConfig
+
+How long the server keeps its systemd journal on the SD card, in days: 7, 15 or 30. The logs page offers no period longer than this.
+
+| Field | Type |
+|---|---|
+| `log_retention_days` | integer |
 
 ### BtRemoteConfig
 

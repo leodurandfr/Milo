@@ -11,6 +11,8 @@
   speaker's own tails, grouped by the backend so a line repeated forty times
   is one row with its count; and at the top, the Pi's throttling state, read
   with it — anything but 0 a warning, each limit named now or since boot.
+  The windows offered stop at the journal's retention, which each answer
+  carries (`retention_days`, utils/logPeriods.js).
   Every line arrives redacted by the backend (the diagnostic's Redactor): no
   network, share or speaker name, public address or URL query reaches this
   page, which is why it can be shared.
@@ -120,6 +122,7 @@ import { useTimer } from '@/composables/useTimer';
 import { useDebounce } from '@/composables/useDebounce';
 import { bcp47For } from '@/constants/countries';
 import { correctionText } from '@/utils/logCorrection';
+import { offeredLogPeriods, periodWithin } from '@/utils/logPeriods';
 import { writeToClipboard } from '@/utils/clipboard';
 import IconButton from '@/components/ui/IconButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
@@ -133,14 +136,6 @@ const timer = useTimer();
 
 // The groups one read returns; the backend caps it at 1000.
 const LIMIT = 300;
-// The windows offered, as the route spells them, and their length to name.
-const PERIODS = [
-  { value: '1h', amount: 1, unit: 'h' },
-  { value: '6h', amount: 6, unit: 'h' },
-  { value: '24h', amount: 24, unit: 'h' },
-  { value: '7d', amount: 7, unit: 'd' },
-  { value: '30d', amount: 30, unit: 'd' },
-];
 
 const level = ref('');
 const service = ref('');
@@ -187,7 +182,10 @@ const serviceOptions = computed(() => [
   ...(page.value?.services ?? []).map(service => ({ value: service, label: service })),
 ]);
 
-const periodOptions = computed(() => PERIODS.map(period => ({
+// Up to the journal's retention, which each answer carries (`retention_days`).
+const offeredPeriods = computed(() => offeredLogPeriods(page.value?.retention_days ?? null));
+
+const periodOptions = computed(() => offeredPeriods.value.map(period => ({
   value: period.value,
   label: formatUnit(period.amount, period.unit, { unitDisplay: 'long' }),
 })));
@@ -288,6 +286,11 @@ function goBack() {
 
 const { debounced: loadSoon } = useDebounce(load, 400);
 
+// A window the retention no longer reaches (shortened on another screen) falls
+// back to the longest offered, which reads the page again.
+watch(offeredPeriods, (offered) => {
+  since.value = periodWithin(since.value, offered);
+});
 watch([level, service, since], load);
 watch(query, loadSoon);
 onMounted(load);

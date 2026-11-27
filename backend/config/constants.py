@@ -120,6 +120,16 @@ SET_WIFI_COUNTRY_CMD = "/usr/local/bin/milo-set-wifi-country"
 SET_PASSWORD_CMD = "/usr/local/bin/milo-set-password"
 SET_TIMEZONE_CMD = "/usr/local/bin/milo-set-timezone"
 
+# How long the journal is kept (Settings › System › Advanced): the helper reads
+# the days on stdin and owns one journald drop-in, absent at 7 days — the
+# rootfs's 99-milo-journald.conf already declares that one. Read back at each
+# start by core/system/journal_retention.py; the path is the helper's
+# DROPIN_DIR/DROPIN_NAME, held equal by tests/test_journal_retention.py.
+SET_JOURNAL_RETENTION_CMD = "/usr/local/bin/milo-set-journal-retention"
+JOURNAL_RETENTION_DROPIN = Path("/etc/systemd/journald.conf.d/99-milo-retention.conf")
+LOG_RETENTION_DAYS = Literal[7, 15, 30]
+ALLOWED_LOG_RETENTION_DAYS = frozenset(get_args(LOG_RETENTION_DAYS))
+
 # Written by milo-set-password, read here only for its existence. Absent means
 # the unit still carries the factory password `pi-gen/config` bakes — the same
 # on every unit, and published — so `PUT /api/system/ssh` refuses to open SSH
