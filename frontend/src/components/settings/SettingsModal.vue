@@ -64,7 +64,9 @@
 
 
       <DockSettings v-else-if="currentView === 'apps'" key="apps" class="view-content"
-        @open-volume="push('volume')" />
+        @open-volume="push('dock-volume')" />
+
+      <DockVolumeSettings v-else-if="currentView === 'dock-volume'" key="dock-volume" class="view-content" />
 
       <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
 
@@ -188,6 +190,7 @@ import { SETTINGS_ICONS } from '@/components/settings/settingsIcons';
 import SectionCard from '@/components/ui/SectionCard.vue';
 
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
+import DockVolumeSettings from '@/components/settings/categories/DockVolumeSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import AudioPlaybackSettings from '@/components/settings/categories/AudioPlaybackSettings.vue';
@@ -394,6 +397,7 @@ const headerTitle = computed(() => {
 
   const titles = {
     'home': t('settings.title'),
+    'dock-volume': t('settings.volume'),
     'hardware': t('settings.hardware'),
     'system-advanced': t('settings.advanced'),
     'bt-remote': t('settings.btRemote'),
@@ -444,10 +448,10 @@ onBeforeUnmount(() => {
   if (currentView.value === 'macos') macLinkStore.discardUnapplied();
 });
 
-// Navigate away from the volume view when no device manages volume anymore
-// (its home row is hidden then too)
+// Navigate away from the volume views when no device manages volume anymore
+// (Dock › Volume's own row is hidden then too)
 watch(() => unifiedStore.volumeState.any_volume_control, (hasControl) => {
-  if (!hasControl && currentView.value === 'volume') back();
+  if (!hasControl && ['volume', 'dock-volume'].includes(currentView.value)) back();
 });
 
 // Watch initialView prop for direct navigation (e.g., deep-link into a settings view)

@@ -325,8 +325,6 @@
     "increase": "Raise the volume"
   },
   "volumeSettings": {
-    "inDock": "In the Dock",
-    "inDockDescription": "The screens on which the Dock shows the volume control.",
     "volumeManagement": "Volume managed by Milō",
     "volumeNotManaged": "Volume is not managed by Milō",
     "controls": "Volume controls",

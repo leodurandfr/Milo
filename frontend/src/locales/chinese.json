@@ -325,8 +325,6 @@
     "increase": "提高音量"
   },
   "volumeSettings": {
-    "inDock": "在 Dock 中",
-    "inDockDescription": "Dock 显示音量控制的屏幕。",
     "volumeManagement": "音量由 Milō 管理",
     "volumeNotManaged": "音量未由 Milō 管理",
     "controls": "音量控制",

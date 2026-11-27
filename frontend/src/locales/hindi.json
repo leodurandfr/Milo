@@ -325,8 +325,6 @@
     "increase": "वॉल्यूम बढ़ाएँ"
   },
   "volumeSettings": {
-    "inDock": "Dock में",
-    "inDockDescription": "वे स्क्रीन जिन पर Dock वॉल्यूम नियंत्रण दिखाता है।",
     "volumeManagement": "वॉल्यूम Milō द्वारा प्रबंधित",
     "volumeNotManaged": "वॉल्यूम Milō द्वारा प्रबंधित नहीं है",
     "controls": "वॉल्यूम नियंत्रण",

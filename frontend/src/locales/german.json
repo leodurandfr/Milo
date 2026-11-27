@@ -325,8 +325,6 @@
     "increase": "Lautstärke erhöhen"
   },
   "volumeSettings": {
-    "inDock": "Im Dock",
-    "inDockDescription": "Die Bildschirme, auf denen das Dock die Lautstärkeregelung zeigt.",
     "volumeManagement": "Lautstärke von Milō gesteuert",
     "volumeNotManaged": "Die Lautstärke wird nicht von Milō gesteuert",
     "controls": "Lautstärkeregler",
