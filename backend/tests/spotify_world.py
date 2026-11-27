@@ -427,15 +427,17 @@ class Librespot:
         self.token_reads = 0
         self.closed = False
         # Catalog search (a go-librespot built with it, search.enabled): one
-        # /search/{type} page per kind, as the daemon answers it, and the
-        # suggestions. `search_answers` set to a status answers every search
-        # with it: 404 for a daemon without search, 429 when Spotify
-        # rate-limits it. Every search asked is kept, (path, params).
+        # /search/{tracks,albums,...} page per kind, keyed by that path segment,
+        # as the daemon answers it, and the suggestions. `search_answers` set to
+        # a status answers every search with it: 404 for a daemon without
+        # search, 429 when Spotify rate-limits it. Every search asked is kept,
+        # (path, params).
         self.search_pages: Dict[str, Dict[str, Any]] = {}
-        self.suggestions: Dict[str, Any] = {"query": "", "completions": [], "items": []}
+        self.suggestions: Dict[str, Any] = {"queries": [], "tracks": [], "albums": [], "artists": [],
+                                            "playlists": [], "shows": [], "episodes": []}
         self.search_answers: Optional[int] = None
         # A kind refused alone, with its status: Spotify failing that one
-        # operation this time (go-librespot answers 502).
+        # operation this time (go-librespot answers 500).
         self.search_refused: Dict[str, int] = {}
         # Kinds whose request never comes back in time (a slow network), and
         # kinds whose answer does not read (a body cut short).
@@ -690,7 +692,7 @@ class Librespot:
                 return _Exchange(error=ValueError("Expecting value: line 1 column 1 (char 0)"))
             if path[len("/search/"):] in self.search_refused:
                 return _Exchange(_Response(self.search_refused[path[len("/search/"):]]))
-            empty = {"total": 0, "offset": 0, "limit": params.get("limit", 20), "next_offset": None, "items": []}
+            empty = {"total": 0, "offset": 0, "limit": params.get("limit", 20), "items": []}
             return _Exchange(_Response(200, self.search_pages.get(path[len("/search/"):], empty)))
         return _Exchange(_Response(404))
 

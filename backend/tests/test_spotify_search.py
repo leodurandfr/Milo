@@ -1,5 +1,5 @@
-"""The browser's catalog search: go-librespot's /search/{type} and
-/search/suggestions (a build with search, search.enabled), as
+"""The browser's catalog search: go-librespot's /search/{tracks,artists,albums,
+playlists} and /search/suggestions (a build with search, search.enabled), as
 tests/spotify_world.py models them, shaped by catalog.py for the search page.
 
 What is asserted is what Milō asked of the daemon and what the browser is
@@ -11,62 +11,41 @@ import pytest
 from fastapi import HTTPException
 
 from backend.sources.spotify import routes
-from backend.sources.spotify.catalog import search_card, search_image, search_results, search_track
+from backend.sources.spotify.catalog import search_playlist, search_results, search_track
 from backend.tests.spotify_world import ACCOUNT, SpotifyWorld
 
 COVER_640 = "https://i.scdn.co/image/ab67616d0000b2735a3a1c3a1c3a1c3a1c3a1c3a"
 COVER_300 = "https://i.scdn.co/image/ab67616d00001e025a3a1c3a1c3a1c3a1c3a1c3a"
 COVER_64 = "https://i.scdn.co/image/ab67616d000048515a3a1c3a1c3a1c3a1c3a1c3a"
-ALBUM_IMAGES = [
-    {"url": COVER_300, "width": 300, "height": 300},
-    {"url": COVER_64, "width": 64, "height": 64},
-    {"url": COVER_640, "width": 640, "height": 640},
-]
-
-
-def entity(kind, uri, name, **fields):
-    """A result as go-librespot's API serialises it: every field present."""
-    return {"type": kind, "uri": uri, "name": name, "images": [], "artists": [], "album": None,
-            "duration_ms": 0, "owner": None, "explicit": False, "playable": None, **fields}
+PORTRAIT = "https://i.scdn.co/image/ab6761610000e5eb1a2b3c4d5e6f"
 
 
 def page(*items):
-    return {"total": len(items), "offset": 0, "limit": 10, "next_offset": None, "items": list(items)}
+    """One page as go-librespot's /search/{kind}s answers it."""
+    return {"total": len(items), "offset": 0, "limit": 10, "items": list(items)}
 
 
-DA_FUNK = entity(
-    "track", "spotify:track:0MyY4WcN7DIfbSmp5yej5z", "Da Funk", images=ALBUM_IMAGES,
-    artists=[{"uri": "spotify:artist:4tZwfgrHOc3mvqYlEYSvVi", "name": "Daft Punk"}],
-    album={"uri": "spotify:album:5uRdvUR7xCnHmUW8n64n9y", "name": "Homework"},
-    duration_ms=328600, explicit=False, playable=True,
-)
-DAFT_PUNK = entity("artist", "spotify:artist:4tZwfgrHOc3mvqYlEYSvVi", "Daft Punk",
-                   images=[{"url": "https://i.scdn.co/image/ab6761610000e5eb", "width": 640, "height": 640},
-                           {"url": "https://i.scdn.co/image/ab676161000051745", "width": 320, "height": 320}])
-HOMEWORK = entity("album", "spotify:album:5uRdvUR7xCnHmUW8n64n9y", "Homework", images=ALBUM_IMAGES,
-                  artists=[{"uri": "spotify:artist:4tZwfgrHOc3mvqYlEYSvVi", "name": "Daft Punk"},
-                           {"uri": "spotify:artist:1", "name": "Guest"}])
-THIS_IS = entity("playlist", "spotify:playlist:37i9dQZF1DZ06evO1rtgpL", "This Is Daft Punk",
-                 images=[{"url": "https://i.scdn.co/image/ab67706f", "width": 0, "height": 0}],
-                 owner={"uri": "spotify:user:spotify", "name": "Spotify"})
+# The shapes of go-librespot's api-spec.yml: searchTrack, libraryArtist,
+# libraryAlbum and searchPlaylist, every required field present.
+DA_FUNK = {
+    "uri": "spotify:track:0MyY4WcN7DIfbSmp5yej5z", "name": "Da Funk",
+    "artist_names": ["Daft Punk"], "artist_uris": ["spotify:artist:4tZwfgrHOc3mvqYlEYSvVi"],
+    "album_name": "Homework", "album_uri": "spotify:album:5uRdvUR7xCnHmUW8n64n9y",
+    "album_cover_url": COVER_640, "duration": 328600,
+}
+DAFT_PUNK = {"uri": "spotify:artist:4tZwfgrHOc3mvqYlEYSvVi", "name": "Daft Punk", "image_url": PORTRAIT}
+HOMEWORK = {"uri": "spotify:album:5uRdvUR7xCnHmUW8n64n9y", "name": "Homework",
+            "artist_names": ["Daft Punk", "Guest"], "year": 1997, "image_url": COVER_640}
+THIS_IS = {"uri": "spotify:playlist:37i9dQZF1DZ06evO1rtgpL", "name": "This Is Daft Punk", "description": "",
+           "owner_username": "spotify", "image_url": "https://i.scdn.co/image/ab67706f"}
 
 
 # === Shaping (pure) ===
 
-def test_a_card_is_drawn_from_the_smallest_picture_at_least_as_wide_as_a_card():
-    assert search_image(ALBUM_IMAGES) == COVER_300
-    assert search_image(ALBUM_IMAGES, width=None) == COVER_640
-    assert search_image([{"url": COVER_64, "width": 64, "height": 64}]) == COVER_64, "too small is still a picture"
-    assert search_image([{"url": "https://x/unsized", "width": 0, "height": 0}, {"url": COVER_64, "width": 64}]) \
-        == "https://x/unsized", "an unsized picture counts as the widest"
-    assert search_image([]) is None
-
-
 def test_a_track_result_is_a_listing_row_with_its_album_and_a_thumbnail():
     """The row SpotifyTrackMenu and TrackRow read on every other page: a
     missing key there is a menu that leads nowhere or a row with no cover."""
-    row = search_track(DA_FUNK)
-    assert row == {
+    assert search_track(DA_FUNK) == {
         "uri": DA_FUNK["uri"],
         "title": "Da Funk",
         "artists": [{"name": "Daft Punk", "uri": "spotify:artist:4tZwfgrHOc3mvqYlEYSvVi"}],
@@ -74,19 +53,27 @@ def test_a_track_result_is_a_listing_row_with_its_album_and_a_thumbnail():
         "artwork": COVER_640,
         "thumbnail": COVER_64,
         "duration_ms": 328600,
-        "explicit": False,
     }
 
 
 def test_each_card_says_what_it_opens_and_its_byline():
-    assert search_card(DAFT_PUNK) == {
-        "uri": DAFT_PUNK["uri"], "kind": "artist", "name": "Daft Punk", "subtitle": None,
-        "image": "https://i.scdn.co/image/ab676161000051745",
-    }
-    assert search_card(HOMEWORK)["subtitle"] == "Daft Punk, Guest"
-    playlist = search_card(THIS_IS)
-    assert (playlist["subtitle"], playlist["owner"]) == ("Spotify", "spotify"), \
+    shaped = search_results("daft punk", {
+        "track": page(), "artist": page(DAFT_PUNK), "album": page(HOMEWORK), "playlist": page(THIS_IS),
+    })
+    assert shaped["artists"] == [{"uri": DAFT_PUNK["uri"], "kind": "artist", "name": "Daft Punk",
+                                  "subtitle": None, "image": PORTRAIT}]
+    assert [(a["kind"], a["subtitle"], a["image"]) for a in shaped["albums"]] == [
+        ("album", "Daft Punk, Guest", COVER_300)], "the card's 300 px cover, not the 640 px one"
+    playlist = shaped["playlists"][0]
+    assert (playlist["kind"], playlist["subtitle"], playlist["owner"]) == ("playlist", "Spotify", "spotify"), \
         "the page tells Spotify's own playlists apart by the owner's username"
+
+
+def test_a_playlist_someone_else_owns_has_no_byline():
+    """go-librespot names a playlist's owner by username only, which reads as
+    an id for most accounts: no byline, as for a library playlist."""
+    card = search_playlist({**THIS_IS, "owner_username": "31l2k4j5h6g7f8d9s0a", "image_url": None})
+    assert (card["subtitle"], card["owner"], card["image"]) == (None, "31l2k4j5h6g7f8d9s0a", None)
 
 
 def test_a_result_spotify_repeats_in_a_page_is_listed_once():
@@ -111,14 +98,14 @@ async def world(monkeypatch, tmp_path):
 
 
 async def test_one_search_asks_each_kind_the_browser_opens_once(world):
-    world.daemon.search_pages = {"track": page(DA_FUNK), "artist": page(DAFT_PUNK),
-                                 "album": page(HOMEWORK), "playlist": page(THIS_IS)}
+    world.daemon.search_pages = {"tracks": page(DA_FUNK), "artists": page(DAFT_PUNK),
+                                 "albums": page(HOMEWORK), "playlists": page(THIS_IS)}
 
     answer = await routes.search(q="  daft punk ", source=world.source)
 
     assert sorted(world.daemon.searches) == sorted(
         (f"/search/{kind}", {"q": "daft punk", "limit": routes.SEARCH_LIMIT})
-        for kind in ("track", "artist", "album", "playlist")
+        for kind in ("tracks", "artists", "albums", "playlists")
     ), "trimmed, and no kind the browser has no page for"
     assert answer["status"] == "success"
     assert answer["incomplete"] == []
@@ -131,8 +118,8 @@ async def test_one_search_asks_each_kind_the_browser_opens_once(world):
 async def test_a_kind_spotify_failed_this_time_costs_only_its_section(world):
     """Measured live: pathfinder failed one operation (searchArtists) of a
     search, once; the page lost to it showed nothing at all."""
-    world.daemon.search_pages = {"track": page(DA_FUNK), "album": page(HOMEWORK), "playlist": page(THIS_IS)}
-    world.daemon.search_refused = {"artist": 502}
+    world.daemon.search_pages = {"tracks": page(DA_FUNK), "albums": page(HOMEWORK), "playlists": page(THIS_IS)}
+    world.daemon.search_refused = {"artists": 500}
 
     answer = await routes.search(q="daft punk", source=world.source)
 
@@ -145,8 +132,8 @@ async def test_a_kind_spotify_failed_this_time_costs_only_its_section(world):
 async def test_a_kind_that_did_not_come_back_in_time_costs_only_its_section(world):
     """A slow network: one kind's request times out. Read as "Spotify is not
     reachable" for the whole search, it showed "signing in" for good."""
-    world.daemon.search_pages = {"track": page(DA_FUNK), "artist": page(DAFT_PUNK)}
-    world.daemon.search_times_out = {"album"}
+    world.daemon.search_pages = {"tracks": page(DA_FUNK), "artists": page(DAFT_PUNK)}
+    world.daemon.search_times_out = {"albums"}
 
     answer = await routes.search(q="daft punk", source=world.source)
 
@@ -155,7 +142,7 @@ async def test_a_kind_that_did_not_come_back_in_time_costs_only_its_section(worl
 
 
 async def test_a_search_failed_for_every_kind_is_a_failure(world):
-    world.daemon.search_refused = {kind: 502 for kind in ("track", "artist", "album", "playlist")}
+    world.daemon.search_refused = {kind: 500 for kind in ("tracks", "artists", "albums", "playlists")}
     with pytest.raises(HTTPException) as raised:
         await routes.search(q="daft punk", source=world.source)
     assert raised.value.status_code == 503
@@ -165,15 +152,15 @@ async def test_every_kind_unreachable_is_the_daemons_state(world):
     """The daemon restarting under the search (a profile switch), or every
     request lost: the page draws it as signing in, with its retry, as every
     other Spotify page does."""
-    world.daemon.search_times_out = {"track", "artist", "album", "playlist"}
+    world.daemon.search_times_out = {"tracks", "artists", "albums", "playlists"}
     with pytest.raises(HTTPException) as raised:
         await routes.search(q="daft punk", source=world.source)
     assert raised.value.status_code == 409
 
 
 async def test_an_answer_that_does_not_read_costs_only_its_section(world):
-    world.daemon.search_pages = {"track": page(DA_FUNK)}
-    world.daemon.search_garbled = {"album"}
+    world.daemon.search_pages = {"tracks": page(DA_FUNK)}
+    world.daemon.search_garbled = {"albums"}
 
     answer = await routes.search(q="daft punk", source=world.source)
 
@@ -183,8 +170,8 @@ async def test_an_answer_that_does_not_read_costs_only_its_section(world):
 
 async def test_a_rate_limit_on_one_kind_costs_only_its_section(world):
     """The four go out at once: Spotify may limit the last one only."""
-    world.daemon.search_pages = {"track": page(DA_FUNK), "album": page(HOMEWORK), "playlist": page(THIS_IS)}
-    world.daemon.search_refused = {"artist": 429}
+    world.daemon.search_pages = {"tracks": page(DA_FUNK), "albums": page(HOMEWORK), "playlists": page(THIS_IS)}
+    world.daemon.search_refused = {"artists": 429}
 
     answer = await routes.search(q="daft punk", source=world.source)
 
@@ -214,16 +201,16 @@ async def test_a_rate_limit_reaches_the_browser_as_one(world):
 
 
 async def test_spotify_refusing_the_search_is_a_failure(world):
-    """502: an outdated query hash, a refused client or token."""
-    world.daemon.search_answers = 502
+    """500: an outdated query hash, a refused client or token."""
+    world.daemon.search_answers = 500
     with pytest.raises(HTTPException) as raised:
         await routes.search(q="daft punk", source=world.source)
     assert raised.value.status_code == 503
 
 
 async def test_suggestions_are_the_completed_queries(world):
-    world.daemon.suggestions = {"query": "daft p", "completions": ["daft punk", "daft punk tron"],
-                                "items": [DAFT_PUNK]}
+    world.daemon.suggestions = {**world.daemon.suggestions, "queries": ["daft punk", "daft punk tron"],
+                                "artists": [DAFT_PUNK]}
 
     answer = await routes.search_suggestions(q="daft p ", source=world.source)
 

@@ -237,8 +237,7 @@ async def search_suggestions(q: SearchQuery, source: SpotifySource = Depends(get
     _signed_in(source, "Spotify search suggestions")
     async with _search_errors("Spotify search suggestions"):
         answer = await source.library.suggestions(q.strip(), SUGGESTIONS_LIMIT)
-        return {"status": "success", "query": answer.get("query") or q.strip(),
-                "completions": answer.get("completions") or []}
+        return {"status": "success", "query": q.strip(), "completions": answer.get("queries") or []}
 
 
 @router.get("/history")

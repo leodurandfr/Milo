@@ -585,7 +585,7 @@ class SpotifySource(BaseAudioSource):
     # Liked Songs (measured 2026-10-03: 3000 cost 17 MB of RSS, `length`
     # never shows what was cut off).
     # external_volume: the samples stay at unity, whatever the app's slider.
-    # search: the browser's catalog search, /search/{type} and
+    # search: the browser's catalog search, /search/{tracks,...} and
     # /search/suggestions over Spotify's pathfinder; a daemon built without it
     # ignores the key and answers those paths 404.
     MANAGED_CONSTANT_CONFIG = {

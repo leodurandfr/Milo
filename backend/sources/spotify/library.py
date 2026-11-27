@@ -250,14 +250,15 @@ class SpotifyLibrary:
         return playlist_cover(covers)
 
     # go-librespot gives a search 15 s, retries included, before it answers
-    # 502: waited for a little longer than that, so its answer is the one read.
+    # 500: waited for a little longer than that, so its answer is the one read.
     SEARCH_TIMEOUT = aiohttp.ClientTimeout(total=16.0)
 
     async def search(self, kind: str, query: str, limit: int) -> Dict[str, Any]:
         """The first page of one kind of result for `query`: go-librespot's
-        /search/{type}, which asks Spotify's pathfinder. A daemon built without
-        it, or with search off, answers 404; Spotify rate-limiting it, 429."""
-        return await self._request("GET", f"/search/{kind}", params={"q": query, "limit": limit},
+        /search/{tracks,artists,albums,playlists}, which asks Spotify's
+        pathfinder. A daemon built without it, or with search off, answers 404;
+        Spotify rate-limiting it, 429."""
+        return await self._request("GET", f"/search/{kind}s", params={"q": query, "limit": limit},
                                    timeout=self.SEARCH_TIMEOUT) or {}
 
     async def suggestions(self, query: str, limit: int) -> Dict[str, Any]:
