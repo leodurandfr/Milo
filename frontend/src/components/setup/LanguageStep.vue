@@ -9,11 +9,7 @@
         action="radio"
         :model-value="modelValue === lang.code"
         @click="selectLanguage(lang.code)"
-      >
-        <template #icon>
-          <img :src="languageFlag(lang.code)" :alt="lang.name" />
-        </template>
-      </ListItemButton>
+      />
     </div>
   </div>
 </template>
@@ -22,8 +18,6 @@
 import { computed } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
-
-import { languageFlag } from '@/constants/languageFlags';
 
 const props = defineProps({
   modelValue: {

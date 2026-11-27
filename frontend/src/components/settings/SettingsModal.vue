@@ -327,7 +327,6 @@ const HOME_SECTIONS = [
     key: 'general',
     titleKey: 'settings.section.general',
     rows: [
-      { view: 'languages', titleKey: 'settings.languageRegion', icon: 'languages' },
       { view: 'apps', titleKey: 'settings.dock', icon: 'dock' },
       // Offered on every unit: the theme it carries is every browser's, a
       // phone driving a unit with no screen included. Only its kiosk settings
@@ -370,6 +369,10 @@ const HOME_SECTIONS = [
       { view: 'network', titleKey: 'settings.network', icon: 'network' },
       { view: 'hardware', titleKey: 'settings.hardware', icon: 'hardware' },
       { view: 'updates', titleKey: 'settings.updates', icon: 'updates' },
+      // Set once, at setup, and rarely again — so it sits low, with the device,
+      // but keeps a row of its own rather than a card inside System: someone
+      // who picked a language they cannot read finds it here by its icon.
+      { view: 'languages', titleKey: 'settings.languageRegion', icon: 'languages' },
       { view: 'system', titleKey: 'settings.system', icon: 'system' },
     ],
   },

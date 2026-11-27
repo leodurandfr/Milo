@@ -41,7 +41,7 @@
           <ScreenStep v-else-if="currentStep === 4" v-model="wizardState.screenType" :screens="screens" />
 
           <SummaryStep v-else-if="currentStep === 5"
-            :language-code="wizardState.language" :language-label="selectedLanguageLabel"
+            :language-label="selectedLanguageLabel"
             :audio-label="selectedAudioLabel" :screen-label="selectedScreenLabel"
             :volume-control="wizardState.volumeControl" :is-dac="isDacSelected"
             :wifi-ssid="wizardState.wifiSsid" :is-rebooting="isRebooting"

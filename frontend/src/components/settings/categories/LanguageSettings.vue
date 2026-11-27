@@ -17,11 +17,7 @@
           :model-value="currentLanguage === language.code"
           :disabled="languageSaving"
           @click="selectLanguage(language.code)"
-        >
-          <template #icon>
-            <img :src="languageFlag(language.code)" :alt="language.name" />
-          </template>
-        </ListItemButton>
+        />
       </div>
 
       <!-- A language the backend refused: the check mark stays on the one in use. -->
@@ -58,8 +54,6 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
-
-import { languageFlag } from '@/constants/languageFlags';
 
 const { t, getAvailableLanguages, getCurrentLanguage, setLanguage } = useI18n();
 

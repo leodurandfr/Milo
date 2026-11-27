@@ -16,7 +16,6 @@
     <div class="summary-item">
       <span class="text-mono-medium summary-item__label">{{ t('setup.summary.language') }}</span>
       <div class="summary-item__card">
-        <img v-if="flagIcon" :src="flagIcon" :alt="languageLabel" class="summary-item__flag" />
         <span class="heading-3">{{ languageLabel }}</span>
       </div>
     </div>
@@ -50,22 +49,15 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 
-import { languageFlag } from '@/constants/languageFlags';
-
 const { t } = useI18n();
 
-const props = defineProps({
+defineProps({
   wifiSsid: {
     type: String,
     default: null,
-  },
-  languageCode: {
-    type: String,
-    default: 'english',
   },
   languageLabel: {
     type: String,
@@ -101,8 +93,6 @@ const props = defineProps({
     default: false,
   },
 });
-
-const flagIcon = computed(() => languageFlag(props.languageCode) || null);
 </script>
 
 <style scoped>
@@ -138,11 +128,6 @@ const flagIcon = computed(() => languageFlag(props.languageCode) || null);
   color: var(--color-text-secondary);
 }
 
-.summary-item__flag {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-}
 
 .summary-hint {
   color: var(--color-text-secondary);
