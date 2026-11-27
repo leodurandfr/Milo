@@ -111,6 +111,7 @@ import struct
 from enum import Enum, auto
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from services.registration import (
     answers,
@@ -172,11 +173,12 @@ _restart_lock = asyncio.Lock()
 
 
 def _server_arg(cmdline: bytes) -> Optional[str]:
-    """The value of snapclient's `-h` flag, read out of a /proc cmdline blob."""
+    """The host of snapclient's server URI (`tcp://<host>:1704`, its last
+    argument), read out of a /proc cmdline blob."""
     args = [arg.decode(errors="replace") for arg in cmdline.split(b"\0") if arg]
-    for i, arg in enumerate(args):
-        if arg == "-h" and i + 1 < len(args):
-            return args[i + 1]
+    for arg in reversed(args):
+        if arg.startswith("tcp://"):
+            return urlsplit(arg).hostname
     return None
 
 

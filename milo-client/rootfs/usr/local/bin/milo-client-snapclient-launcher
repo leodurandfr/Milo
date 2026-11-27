@@ -32,7 +32,7 @@
 # connection for hours (measured on Bureau).
 #
 # Environment variables (provided by /var/lib/milo-client/env):
-#   MILO_PRINCIPAL_IP            hostname or IP of the main Milō server
+#   MILO_PRINCIPAL_IP            hostname or IPv4 address of the main Milō server
 #   MILO_SNAPCLIENT_BUFFER_TIME  ALSA buffer time in ms (default 80)
 #   MILO_SNAPCLIENT_FRAGMENTS    ALSA fragments (default 4)
 
@@ -123,11 +123,15 @@ if [ -s "$override" ]; then
 fi
 case "$server" in
     *[!0-9.]*)
-        # Hostname — try to resolve, retry up to ~10s for slow avahi/DNS at boot
+        # Hostname — try to resolve, retry up to ~10s for slow avahi/DNS at boot.
+        # IPv4 only, as the API's resolver: the watcher compares this address with
+        # the one it resolves, and snapclient's server URI cannot carry an IPv6
+        # literal (0.35: `tcp://[::1]` resolves "[", `tcp://::1` falls back to
+        # mDNS discovery — measured).
         resolved=""
         i=0
         while [ "$i" -lt 5 ]; do
-            resolved=$(getent hosts "$server" 2>/dev/null | awk '{print $1}' | head -n1)
+            resolved=$(getent ahostsv4 "$server" 2>/dev/null | awk 'NR == 1 {print $1}')
             [ -n "$resolved" ] && break
             i=$((i + 1))
             sleep 2
@@ -150,11 +154,11 @@ esac
 # The hostID is this unit's identity, the one its registration announces too.
 host_id=$(/usr/local/bin/milo-host-id) || host_id="milo-client"
 
+# The server goes last, as a URI: snapclient 0.35 deprecates -h/-p.
 exec /usr/bin/snapclient \
-    -h "$server" \
-    -p 1704 \
     --hostID "$host_id" \
     --logsink=system \
     --soundcard camilladsp_input \
     --mixer none \
-    --player "alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME:-80},fragments=${MILO_SNAPCLIENT_FRAGMENTS:-4}"
+    --player "alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME:-80},fragments=${MILO_SNAPCLIENT_FRAGMENTS:-4}" \
+    "tcp://$server:1704"

@@ -149,7 +149,7 @@ async def test_a_moved_server_restarts_a_disconnected_snapclient(tmp_path):
     argv *is* the contract — milo-client/rootfs/etc/sudoers.d/milo-client grants
     `stop` and `start` by name, and deliberately does not grant `restart`.
     """
-    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", "192.168.1.55", "-p", "1704")
+    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "tcp://192.168.1.55:1704")
 
     with _watching(tmp_path, 1077, resolves_to="192.168.1.39") as spawned:
         assert await _reconcile() is True
@@ -166,7 +166,7 @@ async def test_an_unmoved_server_is_left_alone(tmp_path):
 
     Restarting it would add an audio gap to an outage it cannot fix.
     """
-    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", "192.168.1.39", "-p", "1704")
+    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "tcp://192.168.1.39:1704")
 
     with _watching(tmp_path, 1077, resolves_to="192.168.1.39") as spawned:
         assert await _reconcile() is False
@@ -177,7 +177,7 @@ async def test_an_unmoved_server_is_left_alone(tmp_path):
 @pytest.mark.asyncio
 async def test_a_failed_lookup_is_not_a_move(tmp_path):
     """mDNS answers NXDOMAIN under load, and that says nothing about the server."""
-    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", "192.168.1.39", "-p", "1704")
+    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "tcp://192.168.1.39:1704")
 
     with _watching(tmp_path, 1077, resolves_to=None) as spawned:
         assert await _reconcile() is False
@@ -207,7 +207,7 @@ async def test_an_operator_pinned_ip_is_never_seen_as_a_move(tmp_path):
     address on purpose: a resolver that lost its literal short-circuit would
     answer that one, and the assertion below would catch it.
     """
-    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", "192.168.1.10", "-p", "1704")
+    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "tcp://192.168.1.10:1704")
 
     with _watching(tmp_path, 1077, principal="192.168.1.10",
                    resolves_to="192.168.1.39") as spawned:
@@ -223,7 +223,7 @@ async def test_the_launchers_hostname_fallback_is_reclaimed(tmp_path):
     snapclient then re-issues mDNS on every retry — the stall the literal exists
     to avoid — so a disconnected client in that state must be handed the literal.
     """
-    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", "milo.local", "-p", "1704")
+    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "tcp://milo.local:1704")
 
     with _watching(tmp_path, 1077, resolves_to="192.168.1.39") as spawned:
         assert await _reconcile() is True
@@ -239,7 +239,7 @@ async def test_a_start_that_failed_is_owed_and_retried(tmp_path):
     compare, and the watcher's own "never start a stopped unit" rule would then
     refuse to touch the very unit it stopped. The debt has to be carried.
     """
-    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", "192.168.1.55", "-p", "1704")
+    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "tcp://192.168.1.55:1704")
 
     with _watching(tmp_path, 1077, resolves_to="192.168.1.39", start_fails=True):
         with pytest.raises(RuntimeError):
@@ -254,21 +254,22 @@ async def test_a_start_that_failed_is_owed_and_retried(tmp_path):
     assert watch._start_owed is False
 
 
-def test_the_watcher_reads_the_flag_the_launcher_actually_passes():
+def test_the_watcher_reads_the_uri_the_launcher_actually_passes():
     """The parse is a convention shared with a shell script no test would run.
 
-    Renaming the flag to `--host` in the launcher would make the watcher read
-    nothing, report every snapclient as "not running", and turn the whole
-    feature into a silent no-op with both suites green.
+    Changing how the launcher hands snapclient its server (back to `-h`, or
+    another scheme) would make the watcher read nothing, report every
+    snapclient as "not running", and turn the whole feature into a silent
+    no-op with both suites green.
     """
     source = LAUNCHER.read_text()
     assert "exec /usr/bin/snapclient" in source, "launcher no longer execs snapclient"
 
-    match = re.search(r'(-{1,2}[\w-]+)\s+"\$server"', source)
-    assert match, "no flag carries $server into snapclient — update the parse"
+    match = re.search(r'"(\w+://)\$server(:\d+)"', source)
+    assert match, "no URI carries $server into snapclient — update the parse"
 
-    flag = match.group(1)
-    argv = b"\0".join([b"/usr/bin/snapclient", flag.encode(), b"192.0.2.1"]) + b"\0"
+    uri = f"{match.group(1)}192.0.2.1{match.group(2)}".encode()
+    argv = b"\0".join([b"/usr/bin/snapclient", b"--hostID", b"x", uri]) + b"\0"
     assert _server_arg(argv) == "192.0.2.1"
 
 
@@ -422,7 +423,7 @@ class _World:
     """A satellite's outside world as functions of time, on a clock the loop's sleeps advance.
 
     `connected(t)` says whether snapclient holds its stream, `resolves(t)` what
-    mDNS answers for the server (None: the lookup fails). snapclient runs with `-h dialled`, from
+    mDNS answers for the server (None: the lookup fails). snapclient runs with `tcp://dialled:1704`, from
     the satellite address `local(t)`. The satellite's eth0 is `carrier(t)` (the
     sysfs text, None: no such file), `wired(t)` its IPv4 address (None: none),
     and `preferred(t)` the source the kernel picks for a new connection to the
@@ -449,7 +450,7 @@ class _World:
         self.lookups = []      # virtual times of each mDNS resolution
         self.pid_reads = []    # virtual times of each `systemctl show`
         self.restarts = []     # virtual times of each `systemctl start`
-        _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", dialled, "-p", "1704")
+        _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", f"tcp://{dialled}:1704")
         self._write()
 
     def _write(self):
@@ -990,7 +991,7 @@ class _ServerCableWorld(_World):
         proc = await super()._exec(*argv, **kwargs)
         if argv[0] == "sudo" and argv[3] == "start":
             self.dialled = self.resolves(self.now)
-            _write_cmdline(self.tmp_path, 1077, "/usr/bin/snapclient", "-h", self.dialled, "-p", "1704")
+            _write_cmdline(self.tmp_path, 1077, "/usr/bin/snapclient", f"tcp://{self.dialled}:1704")
             if self.dialled == WIRED:
                 self.returns.append(self.now)
         return proc
@@ -1207,7 +1208,7 @@ async def test_without_a_heartbeat_answer_nothing_is_probed(tmp_path):
 async def test_an_operator_pinned_ip_is_never_left_for_another_address(tmp_path):
     """A literal MILO_PRINCIPAL_IP is a choice an operator made: even silent, and
     with another listed address answering, the unit stays on it."""
-    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", WIRED, "-p", "1704")
+    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", f"tcp://{WIRED}:1704")
     registration.remember_server_addresses(list(SERVER_ADDRESSES))
     dialled = []
 

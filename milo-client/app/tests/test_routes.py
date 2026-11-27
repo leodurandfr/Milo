@@ -344,7 +344,7 @@ class TestSnapclientConfigRestart:
         env = tmp_path / "env"
         env.write_text("MILO_PRINCIPAL_IP=milo.local\nMILO_SNAPCLIENT_BUFFER_TIME=80\n")
         (tmp_path / "1077").write_bytes(
-            b"\0".join([b"/usr/bin/snapclient", b"-h", b"192.168.1.55", b"-p", b"1704"]) + b"\0")
+            b"\0".join([b"/usr/bin/snapclient", b"tcp://192.168.1.55:1704"]) + b"\0")
         override = tmp_path / "server-address"
         monkeypatch.setattr("routes.snapclient.ENV_FILE", env)
         monkeypatch.setattr("services.server_address_watch.PROC_CMDLINE", str(tmp_path) + "/{pid}")
