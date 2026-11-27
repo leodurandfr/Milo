@@ -218,6 +218,7 @@ import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useVolumeThrottle, useVolumeThrottleMap } from '@/composables/useVolumeThrottle';
 import { useTimer } from '@/composables/useTimer';
 import { useI18n } from '@/services/i18n';
+import { moveZoneTo } from '@/utils/multiroomZone';
 import { COLLAPSE_FOLLOW_MS } from '@/constants/collapse';
 
 const { t } = useI18n();
@@ -264,6 +265,12 @@ const springHeightDelta = inject('modalSpringHeightDelta', null);
 const isExpanded = ref(false);
 const localDisplayVolume = ref(null);
 const clientLocalVolumes = ref({});
+// Where a zone drag puts each member (macId -> dB), shown on the members'
+// sliders while the zone's own thumb is local: the zone sends a target every
+// 80 ms and each member's level only comes back with its echo, so the members
+// stepped one round trip behind the finger. Each input moves them from where
+// the previous one left them, as each send moves them on the server.
+const zonePreview = ref(null);
 
 // Ref for measuring expanded content height
 const expandedContentRef = ref(null);
@@ -382,7 +389,16 @@ function getClientDisplayVolume(macId, serverVolume) {
   if (clientLocalVolumes.value[macId] !== undefined) {
     return clientLocalVolumes.value[macId];
   }
-  return clampToSlider(serverVolume);
+  const previewed = zonePreview.value?.[macId];
+  return clampToSlider(previewed ?? serverVolume);
+}
+
+// The members the server's average counts, at their current levels: the base a
+// zone drag's first input moves.
+function zoneMemberLevels() {
+  return Object.fromEntries((props.zoneClientDetails || [])
+    .filter(zoneClient => zoneClient.online && zoneClient.volume_control !== false)
+    .map(zoneClient => [zoneClient.mac_id, zoneClient.equalizerVolume]));
 }
 
 // === ZONE HEADER HANDLERS ===
@@ -460,8 +476,19 @@ function handleVolumeInput(newDisplayVolume) {
     if (!clientsDragging.has(macId)) clientsSuperseded.add(macId);
   }
   localDisplayVolume.value = newDisplayVolume;
+  if (props.isZone) {
+    zonePreview.value = moveZoneTo(zonePreview.value ?? zoneMemberLevels(), newDisplayVolume, {
+      min: sliderMin.value, max: sliderMax.value,
+    });
+  }
   throttledZoneVolume(newDisplayVolume);
 }
+
+// The preview lives exactly as long as the zone's local value: until the
+// server's average confirms the released one, when the members' echoes are in.
+watch(localDisplayVolume, (local) => {
+  if (local === null) zonePreview.value = null;
+});
 
 function handleVolumeRelease() {
   zoneDragging = false;

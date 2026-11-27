@@ -1,0 +1,54 @@
+{
+  "_domain": "Where a zone's members land when its slider aims their average at `target_db`, as two implementations decide it: the backend's move (`VolumeConfig.delta_to_average`, then `move_level` on each member, backend/core/models/volume.py) and the web UI's preview of it during a drag (`moveZoneTo`, frontend/src/utils/multiroomZone.js), which moves the members' thumbs with the zone's before the server's echoes come back. `levels` are the members the average counts (reachable, with volume control); every member moves by one delta and stops at the limits, and the delta is the one that lands their average on the target, the target itself held inside the limits. When the two disagree, a member's thumb follows the drag to one level and jumps to another when the echo lands. Every `moved` was computed by hand, and each sums to the target times the number of members.",
+  "cases": [
+    {
+      "id": "free_move_up",
+      "limits": {"min_db": -80, "max_db": -21},
+      "levels": {"a": -40, "b": -50},
+      "target_db": -40,
+      "moved": {"a": -35, "b": -45}
+    },
+    {
+      "id": "free_move_down",
+      "limits": {"min_db": -80, "max_db": -21},
+      "levels": {"a": -40, "b": -50},
+      "target_db": -50,
+      "moved": {"a": -45, "b": -55}
+    },
+    {
+      "id": "already_on_target",
+      "limits": {"min_db": -80, "max_db": -21},
+      "levels": {"a": -40, "b": -50},
+      "target_db": -45,
+      "moved": {"a": -40, "b": -50}
+    },
+    {
+      "id": "one_room_stops_at_the_maximum_the_other_goes_on",
+      "limits": {"min_db": -80, "max_db": -21},
+      "levels": {"a": -23, "b": -43},
+      "target_db": -25,
+      "moved": {"a": -21, "b": -29}
+    },
+    {
+      "id": "one_room_stops_at_the_minimum_the_other_goes_on",
+      "limits": {"min_db": -60, "max_db": -10},
+      "levels": {"a": -58, "b": -30},
+      "target_db": -50,
+      "moved": {"a": -60, "b": -40}
+    },
+    {
+      "id": "a_target_past_the_limit_puts_every_room_at_the_limit",
+      "limits": {"min_db": -80, "max_db": -21},
+      "levels": {"a": -30, "b": -40},
+      "target_db": -10,
+      "moved": {"a": -21, "b": -21}
+    },
+    {
+      "id": "three_rooms_two_stopped",
+      "limits": {"min_db": -80, "max_db": -21},
+      "levels": {"a": -22, "b": -30, "c": -60},
+      "target_db": -30,
+      "moved": {"a": -21, "b": -21, "c": -48}
+    }
+  ]
+}

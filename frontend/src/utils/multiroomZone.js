@@ -23,3 +23,47 @@ export function zoneLevelState(members) {
 export function leavingDeletesZone(zone) {
   return (zone?.client_ids?.length ?? 0) === 2;
 }
+
+/**
+ * Where a zone's members land when its slider aims their average at
+ * `targetDb`: the backend's move (VolumeConfig.delta_to_average, then
+ * move_level on each member), so a zone drag can move its members' thumbs
+ * with it instead of leaving them a step behind the server's echoes.
+ * `levels` maps each member the average counts (reachable, with volume
+ * control) to its level, and the answer maps the same members. Every member
+ * moves by one delta and stops at the limits; the average is linear between
+ * the deltas at which a member meets a limit, so walking those, nearest
+ * first, gives the exact delta. Held to the backend by
+ * backend/tests/contracts/zone_move_cases.json.
+ */
+export function moveZoneTo(levels, targetDb, { min, max }) {
+  const clamp = (db) => Math.min(Math.max(db, min), max);
+  const values = Object.values(levels);
+  if (values.length === 0) return {};
+  const averageAfter = (delta) => values.reduce((sum, db) => sum + clamp(db + delta), 0) / values.length;
+  const moved = (delta) => Object.fromEntries(
+    Object.entries(levels).map(([macId, db]) => [macId, clamp(db + delta)]),
+  );
+
+  const target = clamp(targetDb);
+  const average = averageAfter(0);
+  if (target === average) return moved(0);
+  const down = target < average;
+  const limit = down ? min : max;
+  const stops = [...new Set(values.map((db) => limit - db))]
+    .filter((stop) => (down ? stop < 0 : stop > 0))
+    .sort((a, b) => Math.abs(a) - Math.abs(b));
+
+  let previousDelta = 0;
+  let previousAverage = average;
+  for (const stop of stops) {
+    const reached = averageAfter(stop);
+    if (down ? reached <= target : reached >= target) {
+      return moved(previousDelta
+        + (target - previousAverage) * (stop - previousDelta) / (reached - previousAverage));
+    }
+    previousDelta = stop;
+    previousAverage = reached;
+  }
+  return moved(previousDelta);
+}

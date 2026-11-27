@@ -6,7 +6,10 @@
  * that sets nothing and springs back, and a mute switch that never turns off.
  */
 import { describe, it, expect } from 'vitest';
-import { zoneLevelState, leavingDeletesZone } from '@/utils/multiroomZone';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { zoneLevelState, leavingDeletesZone, moveZoneTo } from '@/utils/multiroomZone';
 
 describe('zoneLevelState', () => {
   it('a zone whose members are all unavailable has no level to draw', () => {
@@ -61,5 +64,28 @@ describe('leavingDeletesZone', () => {
   it('a standalone speaker has no zone to take with it', () => {
     expect(leavingDeletesZone(null)).toBe(false);
     expect(leavingDeletesZone(undefined)).toBe(false);
+  });
+});
+
+// A zone drag places each member's thumb where the backend's move will put it.
+// The table holds this preview and the backend (test_zone_move_rule.py) to the
+// same answers: when it fails here, a member's thumb follows the drag to one
+// level and jumps to another when the server's echo lands.
+const ZONE_MOVES = JSON.parse(readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../../../backend/tests/contracts/zone_move_cases.json'),
+  'utf8',
+)).cases;
+
+describe('moveZoneTo', () => {
+  it('holds cases where a room stops at a limit', () => {
+    expect(ZONE_MOVES.length).toBeGreaterThanOrEqual(6);
+    expect(ZONE_MOVES.some(({ limits, moved }) => Object.values(moved)
+      .some((db) => db === limits.min_db || db === limits.max_db))).toBe(true);
+  });
+
+  it.each(ZONE_MOVES.map((c) => [c.id, c]))('%s', (_id, { limits, levels, target_db: targetDb, moved }) => {
+    const result = moveZoneTo(levels, targetDb, { min: limits.min_db, max: limits.max_db });
+    expect(Object.keys(result).sort()).toEqual(Object.keys(moved).sort());
+    for (const [macId, db] of Object.entries(moved)) expect(result[macId]).toBeCloseTo(db, 9);
   });
 });
