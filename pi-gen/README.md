@@ -63,9 +63,8 @@ MILO_BRANCH=v1.0.0 ./build.sh
 ```
 
 The image is built from two trees: this checkout supplies the stage, `pi-gen/config`,
-`dependencies.env`, `system-manifest.env` and the frontend (with `THIRD_PARTY_NOTICES.md`, which
-its build copies), and the stage clones `MILO_BRANCH` for everything else. So `build.sh` refuses
-to start, before fetching pi-gen, unless this checkout's `HEAD` is the commit the image will clone
+`dependencies.env`, `system-manifest.env` and the frontend, and the stage clones `MILO_BRANCH`
+for everything else. So `build.sh` refuses to start, before fetching pi-gen, unless this checkout's `HEAD` is the commit the image will clone
 (the tag, the branch as its origin holds it, or a hash one of the origin's branches or tags
 contains) and those files hold no uncommitted change. The stage then clones that commit by its
 hash, so a branch that moves during the build changes nothing.

@@ -1038,11 +1038,6 @@
       "description": "Ce que Milō et ses enceintes ont enregistré récemment, regroupé et consultable. Les noms de réseau, de partage et d'enceinte sont remplacés : la page peut être partagée.",
       "open": "Ouvrir les journaux"
     },
-    "licenses": {
-      "title": "Licences tierces",
-      "description": "Les programmes sur lesquels Milō repose, avec leur version et leur licence, et la manière d'obtenir le code source que ces licences prévoient.",
-      "open": "Afficher les licences"
-    },
     "reset": {
       "title": "Réinitialiser la configuration",
       "description": "Relance le premier démarrage : détection du rôle, puis l'assistant de configuration. Vos stations favorites, abonnements aux podcasts et partages musicaux sont conservés.",

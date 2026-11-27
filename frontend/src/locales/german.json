@@ -1038,11 +1038,6 @@
       "description": "Was Milō und seine Lautsprecher zuletzt aufgezeichnet haben, gruppiert und durchsuchbar. Netzwerk-, Freigabe- und Lautsprechernamen werden ersetzt, daher kann die Seite geteilt werden.",
       "open": "Protokolle öffnen"
     },
-    "licenses": {
-      "title": "Lizenzen von Drittanbietern",
-      "description": "Die Programme, auf denen Milō aufbaut, mit Version und Lizenz, und wie sich der Quellcode beziehen lässt, den diese Lizenzen vorsehen.",
-      "open": "Lizenzen anzeigen"
-    },
     "reset": {
       "title": "Konfiguration zurücksetzen",
       "description": "Führt den ersten Start erneut aus: Rollenerkennung und dann den Einrichtungsassistenten. Ihre Lieblingssender, Podcast-Abonnements und Musikfreigaben bleiben erhalten.",

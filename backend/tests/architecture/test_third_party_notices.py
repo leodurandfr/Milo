@@ -1,8 +1,7 @@
 """Structural guardrail: THIRD_PARTY_NOTICES.md names what this release actually carries.
 
-The notices are what a unit shows under Settings › System › Third-party licenses,
-and what makes the written offer for GPL source accompany the image (the file sits
-in the checkout and in the built frontend, pi-gen/inspect-image.sh checks both).
+The notices are what makes the written offer for GPL source accompany the image
+(the file sits in the checkout on the card, which pi-gen/inspect-image.sh checks).
 They restate versions on purpose — a reader of the file has no manifest at hand —
 and a restated version is exactly what drifts: a dependency bump that leaves the
 notices behind ships a release whose license page names a program it no longer

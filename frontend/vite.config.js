@@ -1,11 +1,9 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
-import { thirdPartyNotices } from './vite-plugins/thirdPartyNotices.js'
 
 export default defineConfig(({ mode }) => ({
-  // thirdPartyNotices: the repo's THIRD_PARTY_NOTICES.md, copied into dist/.
-  plugins: [vue(), thirdPartyNotices()],
+  plugins: [vue()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

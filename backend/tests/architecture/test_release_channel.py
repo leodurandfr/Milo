@@ -473,7 +473,7 @@ def test_both_image_builders_hand_the_stage_the_same_file(stage_scripts):
 LOCAL_ORIGIN = "https://github.com/fork/Milo.git"
 LOCAL_BUILD_INPUTS = (
     "dependencies.env", "system-manifest.env", "pi-gen/config",
-    "pi-gen/stage-milo/00-install-deps/00-run.sh", "frontend/package.json", "THIRD_PARTY_NOTICES.md",
+    "pi-gen/stage-milo/00-install-deps/00-run.sh", "frontend/package.json",
 )
 FETCHING_PI_GEN = "Fetching pi-gen"
 
@@ -557,7 +557,6 @@ def test_a_local_build_of_the_checked_out_ref_goes_ahead(local_checkout, ref):
     ("main", "system-manifest.env"),
     ("main", "pi-gen/stage-milo/04-new/00-run.sh"),
     ("main", "frontend/src/App.vue"),
-    ("main", "THIRD_PARTY_NOTICES.md"),
     ("head-sha", "unpushed"),
 ])
 def test_a_local_build_of_another_tree_than_the_checkout_is_refused(local_checkout, ref, change):
@@ -579,22 +578,6 @@ def test_a_local_build_of_another_tree_than_the_checkout_is_refused(local_checko
     result = _build_locally(local_checkout, ref)
     assert _refused(result), f"MILO_BRANCH={ref} ({change}) was built: {result.stdout}"
     assert not (checkout / "pi-gen" / "pi-gen-upstream").exists(), "refused after pi-gen was fetched"
-
-
-def test_the_dirty_check_covers_what_the_frontend_build_reads_outside_frontend():
-    """The frontend build reads files outside frontend/ (THIRD_PARTY_NOTICES.md,
-    copied into dist/): one left uncommitted puts in the image a dist that
-    differs from the checkout it clones, so the local builder's dirty check must
-    name each. Fails when a vite plugin reads a file the check does not cover."""
-    plugins = sorted((REPO_ROOT / "frontend" / "vite-plugins").glob("*.js"))
-    outside = sorted({m for p in plugins for m in re.findall(r"'\.\./\.\./([^']+)'", p.read_text())})
-    assert outside, "no vite plugin reads a file outside frontend/ any more: the extractor reads nothing"
-    match = re.search(r"status --porcelain --untracked-files=all --(.*?)\)\"", LOCAL_BUILDER.read_text(), re.S)
-    assert match, "pi-gen/build.sh no longer checks its tree for uncommitted changes"
-    pathspec = match.group(1).replace("\\", " ").split()
-    assert "frontend" in pathspec, pathspec
-    assert not set(outside) - set(pathspec), f"read by the frontend build, unchecked: {set(outside) - set(pathspec)}"
-
 
 
 SATELLITE_UPDATES = REPO_ROOT / "backend" / "core" / "updates" / "satellite.py"

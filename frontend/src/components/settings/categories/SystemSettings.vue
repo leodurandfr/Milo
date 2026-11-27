@@ -1,7 +1,6 @@
 <!-- frontend/src/components/settings/categories/SystemSettings.vue -->
 <!-- SSH, with the account password one level down. SSH stays closed on the
-     factory password. The third-party licenses are one level down too, and
-     the logs page is a page of its own (/logs). -->
+     factory password. The logs page is a page of its own (/logs). -->
 <template>
   <SectionStack>
     <SystemInfoSection />
@@ -59,12 +58,6 @@
       </Button>
     </SectionCard>
 
-    <SectionCard :title="t('system.licenses.title')" :description="t('system.licenses.description')">
-      <Button variant="control" @click="$emit('open-licenses')">
-        {{ t('system.licenses.open') }}
-      </Button>
-    </SectionCard>
-
     <SectionCard :title="t('system.reset.title')" :description="t('system.reset.description')">
       <!-- Red from the first press, not only once armed: the action is
            destructive whether or not it is confirmed yet, and the two-step is
@@ -94,7 +87,7 @@ import Button from '@/components/ui/Button.vue';
 import SystemInfoSection from '@/components/settings/categories/SystemInfoSection.vue';
 import SshSection from '@/components/settings/categories/SshSection.vue';
 
-defineEmits(['open-password', 'open-licenses']);
+defineEmits(['open-password']);
 
 const { t } = useI18n();
 const router = useRouter();

@@ -89,11 +89,8 @@ else
 fi
 [[ "${HEAD_COMMIT}" == "${CLONE_COMMIT}" ]] \
     || refuse_tree "this checkout is at ${HEAD_COMMIT}, the image would clone ${CLONE_REF} at ${CLONE_COMMIT}"
-# THIRD_PARTY_NOTICES.md lies outside frontend/, and the frontend build copies
-# it into dist/ (frontend/vite-plugins/).
 DIRTY="$(git -C "${CHECKOUT}" status --porcelain --untracked-files=all -- \
-    dependencies.env system-manifest.env pi-gen/config pi-gen/upstream.env pi-gen/stage-milo frontend \
-    THIRD_PARTY_NOTICES.md)"
+    dependencies.env system-manifest.env pi-gen/config pi-gen/upstream.env pi-gen/stage-milo frontend)"
 [[ -z "${DIRTY}" ]] \
     || refuse_tree "uncommitted changes in what this script copies into the image:"$'\n'"${DIRTY}"
 CHECKOUT_ENV="$("${SCRIPT_DIR}/checkout-env.sh" "${CLONE_COMMIT}" "${CLONE_REPO}")"

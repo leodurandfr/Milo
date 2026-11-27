@@ -1038,11 +1038,6 @@
       "description": "Lo que Milō y sus altavoces han registrado recientemente, agrupado y con búsqueda. Los nombres de red, de recurso compartido y de altavoz se sustituyen, así que la página puede compartirse.",
       "open": "Abrir los registros"
     },
-    "licenses": {
-      "title": "Licencias de terceros",
-      "description": "Los programas en los que se basa Milō, con su versión y su licencia, y cómo obtener el código fuente que esas licencias prevén.",
-      "open": "Mostrar las licencias"
-    },
     "reset": {
       "title": "Restablecer la configuración",
       "description": "Vuelve a ejecutar el primer arranque: detección del rol y luego el asistente de configuración. Sus emisoras favoritas, suscripciones de podcast y servidores de música se conservan.",
