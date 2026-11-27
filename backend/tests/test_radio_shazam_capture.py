@@ -17,7 +17,7 @@ silence, for ever. No log line says so.
 
 ffmpeg is never actually spawned here: `create_subprocess_exec` is replaced, so
 the real binary can neither be executed nor open the stream URL. Consumer:
-`RadioSource._start_shazam_fallback` → the player's now-playing line.
+`RadioSource._poll_inband_metadata` → the player's now-playing line.
 """
 import asyncio
 import io
@@ -155,44 +155,25 @@ class TestCaptureFormatContract:
         assert int(argv[argv.index("-t") + 1]) == shazam_mod.SEGMENT_DURATION_SECONDS
 
 
-class TestPrerollSkip:
-    """Pre-roll ads are injected on each new HTTP connection (Infomaniak)."""
+class TestCaptureUserAgent:
+    """Every capture is a new connection to the station, and Infomaniak's
+    streaming server splices an ad over the first seconds of one from a
+    player's agent (measured 2026-11-27): the capture must carry the agent it
+    leaves alone, the one the radio's mpv sends."""
 
     @pytest.mark.asyncio
-    async def test_no_skip_configured_passes_no_seek_at_all(self, service, spawns):
-        await service._capture_audio("http://stream/fip")
-        assert "-ss" not in spawns[0]
-
-    @pytest.mark.asyncio
-    async def test_the_seek_is_placed_after_the_input_so_ffmpeg_decodes_and_discards(
+    async def test_the_agent_is_an_input_option_so_it_reaches_the_connection(
         self, service, spawns
     ):
-        """Position is the whole mechanism. Before `-i`, ffmpeg seeks the
-        *container* — and a pre-roll injected at connection time is not in the
-        container, so the ad is captured and the music is not."""
-        service._preroll_skip = 7
-
+        """Position is the whole mechanism. ffmpeg binds an option to the file
+        named after it: placed after `-i`, the agent is an output option ffmpeg
+        drops, and the connection goes out as `Lavf/…` — an agent the ad is
+        spliced for, so Shazam fingerprints the ad instead of the music."""
         await service._capture_audio("http://stream/fip")
 
         argv = spawns[0]
-        assert argv[argv.index("-ss") + 1] == "7"
-        assert argv.index("-ss") > argv.index("-i")
-
-    @pytest.mark.asyncio
-    async def test_the_timeout_grows_with_the_skip(self, service, spawns, monkeypatch):
-        """The skip is decoded in real time, so a fixed timeout would kill every
-        capture on a station with a long pre-roll — the exact stations this
-        feature exists for."""
-        monkeypatch.setattr(shazam_mod, "FFMPEG_TIMEOUT_SECONDS", 2)
-        service._preroll_skip = 4
-        # Hangs longer than the base timeout but inside base + skip.
-        spawns.process = _FakeProcess(stdout=b"\x00" * 4000, hangs_for=3)
-
-        wav = await asyncio.wait_for(
-            service._capture_audio("http://stream/fip"), timeout=10
-        )
-
-        assert wav is not None
+        assert argv[argv.index("-user_agent") + 1] == shazam_mod.STREAM_USER_AGENT
+        assert argv.index("-user_agent") < argv.index("-i")
 
 
 class TestCaptureFailures:

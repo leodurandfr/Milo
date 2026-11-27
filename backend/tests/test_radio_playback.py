@@ -729,9 +729,9 @@ class TestStationRecordMoved:
         shazam, fingerprinted = radio.shazams[-1], []
         start = shazam.start
 
-        async def recording_start(stream_url, preroll_skip=0):
+        async def recording_start(stream_url):
             fingerprinted.append(stream_url)
-            await start(stream_url, preroll_skip)
+            await start(stream_url)
 
         shazam.start = recording_start
 

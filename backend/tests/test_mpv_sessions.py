@@ -34,7 +34,7 @@ from backend.tests.golden.test_wire_music_library import (
 from backend.tests.golden.test_wire_podcast import (
     EPISODE_A, EPISODE_B, FakeCatalog, MemoryPodcastData,
 )
-from backend.tests.golden.test_wire_radio import FIP, NOVA, FakeShazam, _RadioAsyncio
+from backend.tests.golden.test_wire_radio import FIP, NOVA, FakeShazam
 from backend.tests.mpv_sim import MpvSim
 from backend.tests.test_podcast_catalogue import _FakeResponse, _answers_with, _lookup, _raises
 
@@ -106,7 +106,6 @@ class RadioRig(Rig):
     def __init__(self, monkeypatch, settings=None):
         super().__init__(monkeypatch, settings)
         monkeypatch.setattr(radio_module, "ShazamRecognitionService", FakeShazam)
-        monkeypatch.setattr(radio_module, "asyncio", _RadioAsyncio())
         source = RadioSource(
             {"mpv_socket": "/nonexistent/radio.sock"}, state_machine=self.machine,
             settings_service=self.settings, systemd_manager=self.systemd,

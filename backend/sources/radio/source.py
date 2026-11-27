@@ -15,11 +15,10 @@ Features:
 """
 import asyncio
 from backend.core.models.ws_events import SourceErrorReason
-import json
 import re
 from dataclasses import dataclass, field, replace
 from typing import Dict, Any, List, Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 from pydantic import BaseModel
 
@@ -285,8 +284,6 @@ class RadioSource(MpvAudioSource):
         # "Artist - Title" is kept too, so a song the station's own order finds
         # nothing for is still read that way.
         self._inband_title_first: Dict[str, bool] = {}
-
-        self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
 
         # Radio France's own now-playing, read for the Radio France stations.
         self._radiofrance = radiofrance.RadioFranceClient()
@@ -555,49 +552,6 @@ class RadioSource(MpvAudioSource):
 
     # === Helpers ===
 
-    async def _detect_preroll(self, url: str) -> int:
-        """Detect pre-roll ad duration from stream ICY metadata via ffprobe.
-
-        Some streaming servers (e.g. Infomaniak) inject pre-roll ads on each
-        new HTTP connection. A verdict is cached per hostname so only the first
-        play of a given host pays the probe cost; a probe that got no answer
-        caches nothing and is asked again next time.
-        """
-        hostname = urlparse(url).hostname or ""
-        if hostname in self._preroll_cache:
-            return self._preroll_cache[hostname]
-
-        skip = 0
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "ffprobe", "-v", "quiet", "-print_format", "json",
-                "-show_format", url,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            try:
-                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
-            finally:
-                # ffprobe is holding an open HTTP connection to the station.
-                # Left running — timed out, or cancelled with the session — it
-                # keeps pulling the stream, and the station counts a listener
-                # that is not there.
-                if process.returncode is None:
-                    process.kill()
-                    await process.wait()
-            if process.returncode == 0 and stdout:
-                tags = json.loads(stdout).get("format", {}).get("tags", {})
-                if tags.get("insertionType") == "preroll":
-                    duration_ms = int(tags.get("durationMilliseconds", 0))
-                    if duration_ms > 0:
-                        skip = (duration_ms // 1000) + 2
-                        self._logger.info(f"Pre-roll ad detected ({duration_ms}ms), skipping {skip}s")
-                self._preroll_cache[hostname] = skip
-        except Exception as e:
-            self._logger.debug(f"Preroll detection failed for {hostname}: {e}")
-
-        return skip
-
     def _resolve_track(self) -> Optional[Dict[str, Any]]:
         """Current now-playing track: in-band metadata first, then Radio
         France's feed, then Shazam."""
@@ -812,11 +766,7 @@ class RadioSource(MpvAudioSource):
             stream_url = session.stream_url
             if stream_url:
                 session.shazam_candidate = False
-                # The preroll probe (ffprobe) runs off the actor: up to ~10 s.
-                self._session_bg.spawn(
-                    self._start_shazam_fallback(session, stream_url),
-                    label="shazam_fallback_start",
-                )
+                await self._shazam.start(stream_url)
 
     @staticmethod
     def _station_key(session: RadioSession) -> str:
@@ -873,22 +823,6 @@ class RadioSource(MpvAudioSource):
             if artwork and session.phase is Phase.PLAYING:
                 track["artwork"] = artwork
             self._publish()
-
-        self._post_result(apply, token=session)
-
-    async def _start_shazam_fallback(self, session: RadioSession, stream_url: str) -> None:
-        """Detect preroll and start Shazam, unless in-band or Radio France
-        named a song meanwhile."""
-        if not self._shazam:
-            return
-        preroll = await self._detect_preroll(stream_url)
-
-        async def apply() -> None:
-            if (
-                self._shazam and session.phase is Phase.PLAYING and not session.inband_seen
-                and not session.radiofrance_named
-            ):
-                await self._shazam.start(stream_url, preroll_skip=preroll)
 
         self._post_result(apply, token=session)
 

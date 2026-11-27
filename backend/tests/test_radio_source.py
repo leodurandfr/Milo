@@ -6,13 +6,13 @@ the station store, the directory and the recognition service faked, a real
 AudioStateMachine) and read where the clients read it: the state's `session`,
 `resume` and `details`, `source/error` banners, command answers, and
 what mpv was told to load. Also the station store's own persistence rules and
-the two pure helpers (the in-band title parser, the pre-roll probe).
+the one pure helper, the in-band title parser.
 """
 import asyncio
 import json
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
@@ -722,111 +722,6 @@ class TestInbandShazamArbitration:
         # Still an in-band station: silence does not hand over to Shazam.
         assert not radio.shazam_running()
 
-class TestPrerollProbe:
-    """The ffprobe pass that reads a station's pre-roll ad out of ICY tags."""
-
-    @pytest.mark.asyncio
-    async def test_a_preroll_is_read_off_the_stream(self, radio_source):
-        """The non-triviality check: a probe that parsed nothing would satisfy
-        the timeout test below on an empty surface. Infomaniak injects the ad
-        duration as ICY tags on the connection, and the skip is that plus the
-        two seconds of slack the source adds."""
-        process = Mock(returncode=0)
-        process.communicate = AsyncMock(return_value=(json.dumps({
-            "format": {"tags": {
-                "insertionType": "preroll", "durationMilliseconds": "15000",
-            }}
-        }).encode(), b""))
-
-        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=process)):
-            assert await radio_source._detect_preroll("http://stream.example/live") == 17
-
-    @pytest.mark.asyncio
-    async def test_a_probe_that_hangs_is_killed(self, radio_source):
-        """ffprobe holds an open HTTP connection to the station for as long as
-        it runs. Timed out and left alone it goes on pulling the stream for the
-        rest of the session — one leaked reader per station that stalls, on a
-        box whose whole job is the audio path."""
-        process = Mock(returncode=None)
-        process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
-        process.kill = Mock()
-        process.wait = AsyncMock()
-
-        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=process)):
-            assert await radio_source._detect_preroll("http://stream.example/live") == 0
-
-        process.kill.assert_called_once()
-        process.wait.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_a_probe_cancelled_by_the_session_end_kills_ffprobe(self, radio_source):
-        """The probe runs in the session's task set, which `end_session`
-        cancels. Cancellation walks past every `except`, so without a kill on
-        that path ffprobe outlives the session still connected to the station —
-        for good if the server accepts and then sends nothing."""
-        process = Mock(returncode=None)
-
-        async def _hangs():
-            await asyncio.sleep(30)
-
-        process.communicate = _hangs
-        process.kill = Mock()
-        process.wait = AsyncMock()
-        spawn = AsyncMock(return_value=process)
-
-        with patch("asyncio.create_subprocess_exec", spawn):
-            task = asyncio.create_task(
-                radio_source._detect_preroll("http://stream.example/live")
-            )
-            for _ in range(100):
-                if spawn.await_count:
-                    break
-                await asyncio.sleep(0)
-            assert spawn.await_count, "the probe never spawned ffprobe"
-            await asyncio.sleep(0)
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-
-        process.kill.assert_called_once()
-        process.wait.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("failure", ["timeout", "nonzero_exit", "unreadable_json"])
-    async def test_a_probe_that_fails_is_asked_again_next_time(self, radio_source, failure):
-        """The verdict is cached per host for the life of the backend. A probe
-        that got no answer — a stall, an ffprobe error, a garbled reply — is no
-        verdict: cached as "no preroll", every later Shazam capture on that host
-        would fingerprint the ad instead of the music. The third call proves
-        the answer that did come is still cached."""
-        failed = Mock(returncode=None)
-        failed.kill = Mock()
-        failed.wait = AsyncMock()
-        if failure == "timeout":
-            failed.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
-        elif failure == "nonzero_exit":
-            failed.returncode = 1
-            failed.communicate = AsyncMock(return_value=(b"", b"connection refused"))
-        else:
-            failed.returncode = 0
-            failed.communicate = AsyncMock(return_value=(b"{not json", b""))
-
-        answered = Mock(returncode=0)
-        answered.communicate = AsyncMock(return_value=(json.dumps({
-            "format": {"tags": {
-                "insertionType": "preroll", "durationMilliseconds": "15000",
-            }}
-        }).encode(), b""))
-        spawn = AsyncMock(side_effect=[failed, answered])
-
-        with patch("asyncio.create_subprocess_exec", spawn):
-            assert await radio_source._detect_preroll("http://stream.example/live") == 0
-            assert await radio_source._detect_preroll("http://stream.example/live") == 17
-            assert await radio_source._detect_preroll("http://stream.example/other") == 17
-
-        assert spawn.await_count == 2
-
-
 class TestTransportOnAnIdleSource:
     """A transport command sent while nothing plays must not serve a crash.
 
@@ -853,9 +748,3 @@ class TestTransportOnAnIdleSource:
 
         assert result["success"] is True
         assert not radio.active()
-
-
-@pytest.fixture
-def radio_source():
-    """A bare source, for the pre-roll probe (no lifecycle involved)."""
-    return RadioSource({"mpv_socket": "/nonexistent/radio.sock"})

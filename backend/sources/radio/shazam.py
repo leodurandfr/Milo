@@ -67,6 +67,14 @@ RECOGNITION_TIMEOUT_SECONDS = 25
 # ffmpeg capture timeout (capture duration + buffer for connection/codec init)
 FFMPEG_TIMEOUT_SECONDS = SEGMENT_DURATION_SECONDS + 15
 
+# The User-Agent every capture connects with — the one the radio's mpv sends
+# (system/milo-radio.service's `--user-agent`, held equal by
+# tests/architecture/test_radio_user_agent.py). Infomaniak's streaming server
+# splices a 15-30 s ad over the start of every new connection from a player's
+# agent (ffmpeg's `Lavf/…` among them, measured 2026-11-27), and each capture
+# is a new connection: under its own agent, the capture fingerprinted the ad.
+STREAM_USER_AGENT = "curl/8.7.1"
+
 # When to ask next (`next_delay`): RECOGNITION_INTERVAL_S after every answer.
 # A try lasts the capture plus the call (~15 s), so this is one request every
 # ~35 s, under the quota. A capture that failed sent nothing, so it is tried
@@ -336,7 +344,6 @@ class ShazamRecognitionService:
         self._display = DisplayedTitle()
         self._loop_task: Optional[asyncio.Task] = None
         self._running = False
-        self._preroll_skip: int = 0
         self._capture_failures = 0
         self._error_reported = False
 
@@ -354,7 +361,7 @@ class ShazamRecognitionService:
         """The track shown — 'title', 'artist', 'artwork' — or None."""
         return self._display.track
 
-    async def start(self, stream_url: str, preroll_skip: int = 0) -> None:
+    async def start(self, stream_url: str) -> None:
         """
         Start recognition for the given stream URL.
 
@@ -363,7 +370,6 @@ class ShazamRecognitionService:
 
         Args:
             stream_url: The radio stream URL to capture audio from
-            preroll_skip: Seconds to skip at start of each capture (pre-roll ads)
         """
         if self.is_running and self._stream_url == stream_url:
             return
@@ -372,7 +378,6 @@ class ShazamRecognitionService:
             await self.stop()
 
         self._stream_url = stream_url
-        self._preroll_skip = preroll_skip
         self._display = DisplayedTitle()
         self._capture_failures = 0
         self._error_reported = False
@@ -539,15 +544,15 @@ class ShazamRecognitionService:
         where ffmpeg writes 0xFFFFFFFF as RIFF size, which rodio/hound rejects)
         and wraps it with Python's wave module to produce correct RIFF headers.
 
-        If a pre-roll skip is configured, ffmpeg decodes and discards that many
-        seconds before capturing, bypassing pre-roll ads injected on connection.
+        The connection carries `STREAM_USER_AGENT`, so a server that splices an
+        ad over a player's first seconds sends this capture the live stream.
         """
         process = None
         try:
-            cmd = ["ffmpeg", "-i", url]
-            if self._preroll_skip > 0:
-                cmd += ["-ss", str(self._preroll_skip)]
-            cmd += [
+            cmd = [
+                "ffmpeg",
+                "-user_agent", STREAM_USER_AGENT,
+                "-i", url,
                 "-t", str(SEGMENT_DURATION_SECONDS),
                 "-f", "s16le",
                 "-acodec", "pcm_s16le",
@@ -561,10 +566,9 @@ class ShazamRecognitionService:
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            timeout = FFMPEG_TIMEOUT_SECONDS + self._preroll_skip
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
-                timeout=timeout,
+                timeout=FFMPEG_TIMEOUT_SECONDS,
             )
 
             if process.returncode != 0 or not stdout:

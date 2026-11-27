@@ -24,9 +24,22 @@ EnvironmentFile=/var/lib/milo/routing.env
 ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE}"'
 
 # Launch mpv in daemon mode with IPC socket
+#
+# --user-agent: Infomaniak's AIS9 streaming server (Nova among the stations it
+# hosts) splices a 15-30 s ad over the first seconds of the live stream on
+# every new connection whose User-Agent is a known player. Measured 2026-11-27
+# on nova-odn.ice.infomaniak.ch, by aligning each connection's audio against a
+# continuous reference: mpv's default `libmpv`, VLC, GStreamer, Chrome, Firefox
+# and `Milo/1.0` all get the ad (and `Lavf/…`, whose ffprobe reads its
+# `insertionType=preroll` tag); `curl/…` and `python-requests/…` get the live
+# stream from the first second. The 25 most-played French stations on
+# radio-browser play the same under `libmpv` and this agent. Shazam's captures
+# send it too (sources/radio/shazam.py::STREAM_USER_AGENT), held equal by
+# backend/tests/architecture/test_radio_user_agent.py.
 ExecStart=/usr/bin/mpv \
     --no-video \
     --audio-device=alsa/milo_radio \
+    --user-agent=curl/8.7.1 \
     --input-ipc-server=/run/milo/radio-ipc.sock \
     --idle=yes \
     --cache=yes \

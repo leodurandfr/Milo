@@ -1,5 +1,4 @@
 """Radio's wire, scenario by scenario (see harness.py for the rules)."""
-import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -38,7 +37,7 @@ class FakeShazam:
     async def is_enabled(self) -> bool:
         return True
 
-    async def start(self, stream_url, preroll_skip=0):
+    async def start(self, stream_url):
         self.is_running = True
 
     async def stop(self):
@@ -48,25 +47,6 @@ class FakeShazam:
     async def close(self):
         await self.stop()
         self.closed = True
-
-
-class _NoPrerollProbe:
-    """ffprobe on a station with no pre-roll ad: exits 0 with no tags."""
-
-    returncode = 0
-
-    async def communicate(self):
-        return b"{}", b""
-
-
-class _RadioAsyncio(AsyncioProxy):
-    """The radio module's asyncio: real, except the ffprobe it would spawn."""
-
-    def __init__(self):
-        super().__init__(asyncio.sleep)
-
-    async def create_subprocess_exec(self, *args, **kwargs):
-        return _NoPrerollProbe()
 
 
 class Radio:
@@ -80,7 +60,6 @@ class Radio:
         monkeypatch.setattr(mpv_audio_source, "asyncio", AsyncioProxy(self.gate.sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(instant_short_sleep))
         monkeypatch.setattr(radio_module, "ShazamRecognitionService", FakeShazam)
-        monkeypatch.setattr(radio_module, "asyncio", _RadioAsyncio())
         self.machine, recorder = make_state_machine()
         self.wire = Wire(self.machine, recorder)
         self.source = RadioSource(
