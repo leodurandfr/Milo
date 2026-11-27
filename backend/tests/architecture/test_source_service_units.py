@@ -156,6 +156,7 @@ OS_UNITS = {
     "wpa_supplicant.service": "the wpasupplicant package",
     "nginx.service": "the nginx package; rootfs/ ships only its site",
     "systemd-udevd.service": "systemd itself (the udev package)",
+    "seatd.service": "the seatd package (system-manifest.env), the kiosk's seat",
 }
 
 

@@ -2,13 +2,14 @@
 """The appliance's logs, read when the logs page asks and never otherwise.
 
 Nothing here runs in the background and nothing is kept between two reads:
-each answer reads errors.log and its rotations, the server's journal — its
-`milo-*` units, and at warning and above the system services Milō depends on
-and the kernel (`journal.page_reads`) — and each online speaker's own journal
-tails, then groups what it read (`grouping.py`); and the Pi's throttling state,
-asked of the firmware (`throttling.py`). A place that could not be read is a
-`not_collected` entry with its reason — never a silence, which would read as
-"nothing happened there".
+each answer collects the window (`collect.py`, which the maintainer's triage
+reads too: errors.log and its rotations, the server's journal — its `milo-*`
+units, and at warning and above the system services Milō depends on and the
+kernel — and each online speaker's own journal over the same window, at
+warning and above), then groups what it read (`grouping.py`); and the Pi's
+throttling state, asked of the firmware (`throttling.py`). A place that could
+not be read is a `not_collected` entry with its reason — never a silence,
+which would read as "nothing happened there".
 
 **Every line that leaves passes through the diagnostic's Redactor** (built by
 `DiagnosticService.build_redactor`, from the same reads a report makes: the
@@ -22,14 +23,6 @@ because a journal message does not name its unit: a line of NetworkManager or
 wpa_supplicant is about a network, one of bluetoothd about Bluetooth, whatever
 its text says.
 
-Two lines in two places are often one record: the backend writes WARNING and
-above both to errors.log and to its stderr, which journald keeps. The journal's
-copy is kept (it carries the unit and the microsecond); errors.log's copy is
-dropped when the journal holds the same logger and first line within
-`_SAME_RECORD_S`. errors.log's own lines matter where the journal no longer
-reaches — the rotations reach further than journald's 54 MB, and they hold
-the backend's warnings from before its stderr carried their priority.
-
 **What costs CPU runs off the event loop** — parsing up to 8 MB of errors.log,
 5000 journal entries, the Redactor's passes over every line, the grouping —
 in a thread (`_in_thread`), one answer at a time: measured, 50 000 lines
@@ -38,7 +31,6 @@ and on the loop that is the WebSocket, mpv's events and the rotary's volume
 frozen for as long. The Redactor is built per answer, so one thread uses it.
 """
 import asyncio
-import bisect
 import logging
 import re
 from dataclasses import asdict, replace
@@ -46,21 +38,22 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-import aiohttp
-
 from backend.config.constants import ERROR_LOG_FILE
 from backend.core.system.diagnostic.whitelist import strip_public_ipv4
 from backend.core.system.logs import grouping, journal, throttling
+from backend.core.system.logs.collect import (
+    collect,
+    drop_journaled,
+    first_line,
+    journal_failures,
+    parse_reads,
+    read_others,
+)
 from backend.core.system.logs.entries import (
-    ERRORS_LOG_SERVICE,
     LEVEL_RANK,
     LogLine,
     journal_time,
     message_text,
-    parse_errors_log,
-    parse_journal,
-    parse_kernel,
-    parse_satellite_block,
 )
 from backend.core.system.logs.models import (
     LogContext,
@@ -74,9 +67,10 @@ from backend.core.system.logs.models import (
 
 logger = logging.getLogger(__name__)
 
-# The two copies of one record are written within the same millisecond; the
-# slack covers a journald that was busy.
-_SAME_RECORD_S = 2.0
+# A speaker's lines around an event, for its context: its journal has no
+# line count to ask by, so a window, wide enough for the 20 lines on each side
+# of a busy moment.
+_CONTEXT_SPEAKER_WINDOW = timedelta(minutes=10)
 
 # `Transition completed: <source>[ (unavailable: <why>)]` and `Transition
 # failed: <source>: <why>`, core/state.py — a failed transition leaves its
@@ -95,10 +89,6 @@ _SOURCE_STATE_GREP = (
 )
 
 
-def _first_line(text: str) -> str:
-    return text.split("\n", 1)[0]
-
-
 def _one_per_record(lines: Sequence[LogLine]) -> List[LogLine]:
     """One line per journal record, oldest first, when two reads both hold it.
 
@@ -110,31 +100,11 @@ def _one_per_record(lines: Sequence[LogLine]) -> List[LogLine]:
     """
     unique: Dict[Tuple[datetime, str, Optional[str], str], LogLine] = {}
     for line in lines:
-        key = (line.at, line.service, line.pid, _first_line(line.message))
+        key = (line.at, line.service, line.pid, first_line(line.message))
         kept = unique.get(key)
         if kept is None or len(line.message) > len(kept.message):
             unique[key] = line
     return sorted(unique.values(), key=lambda line: line.at)
-
-
-def _drop_journaled(errors_log: Sequence[LogLine], journaled: Sequence[LogLine]) -> List[LogLine]:
-    """errors.log's lines the journal does not also hold."""
-    seen: Dict[Tuple[str, str], List[float]] = {}
-    for line in journaled:
-        if line.service == ERRORS_LOG_SERVICE and line.logger:
-            seen.setdefault((line.logger, _first_line(line.message)), []).append(line.at.timestamp())
-    for times in seen.values():
-        times.sort()
-    kept = []
-    for line in errors_log:
-        times = seen.get((line.logger or "", _first_line(line.message)))
-        if times:
-            t = line.at.timestamp()
-            i = bisect.bisect_left(times, t - _SAME_RECORD_S)
-            if i < len(times) and times[i] <= t + _SAME_RECORD_S:
-                continue
-        kept.append(line)
-    return kept
 
 
 class LogService:
@@ -188,40 +158,22 @@ class LogService:
         retention_days = await self._settings.get_setting("system.log_retention_days")
         until = datetime.now(timezone.utc)
         start = until - since
-        reads = journal.page_reads(since=start, until=until, level=level, cap=self.JOURNAL_MAX_ENTRIES)
-        sanitize, results, (others, not_collected), throttled = await asyncio.gather(
+        collected, sanitize, throttled = await asyncio.gather(
+            collect(
+                since=start, until=until, level=level, cap=self.JOURNAL_MAX_ENTRIES,
+                error_log=self._error_log, speakers=self._diagnostic.satellite_targets(),
+                cpu=self._in_thread,
+            ),
             self._sanitizer(),
-            asyncio.gather(*(
-                journal.read(r.args, max_entries=self.JOURNAL_MAX_ENTRIES) for r in reads
-            )),
-            self._collect_others(errors_log_since=start),
             throttling.read(),
         )
-        not_collected += self._journal_failures(reads, results)
+        not_collected = list(collected.not_collected)
         if isinstance(throttled, str):
             not_collected.append(NotCollected(source="throttling", reason=throttled))
             throttled = None
-        # Where a read stopped at its cap, its lines older than its oldest are
-        # not in; the window is whole from the latest such moment on.
-        cut_at = [
-            min(journal_time(e) for e in entries if "__REALTIME_TIMESTAMP" in e)
-            for (entries, _, stopped) in results
-            if stopped and any("__REALTIME_TIMESTAMP" in e for e in entries)
-        ]
-        cut = [read for read, (_, _, stopped) in zip(reads, results) if stopped]
-        truncated = bool(cut)
-        # Only the read of every level was cut: the warnings are whole.
-        warnings_whole = all(read.all_levels for read in cut)
 
         def answer() -> LogsPage:
-            journaled = self._parse(reads, [entries for (entries, _, _) in results])
-            lines = self._redacted(
-                [
-                    line for line in (*journaled, *_drop_journaled(others, journaled))
-                    if start <= line.at <= until
-                ],
-                sanitize,
-            )
+            lines = self._redacted(collected.lines, sanitize)
             minimum = LEVEL_RANK[level] if level else 0
             needle = q.casefold() if q else None
             matched = [
@@ -240,9 +192,9 @@ class LogService:
                 total_groups=len(groups),
                 services=sorted({line.service for line in lines}),
                 lines_read=len(lines),
-                truncated=truncated,
-                journal_from=max(cut_at) if cut_at else None,
-                warnings_whole=warnings_whole,
+                truncated=collected.truncated,
+                journal_from=collected.journal_from,
+                warnings_whole=collected.warnings_whole,
                 throttling=throttled,
                 not_collected=self._redacted_reasons(not_collected, sanitize),
                 retention_days=retention_days,
@@ -269,14 +221,17 @@ class LogService:
         ) = await asyncio.gather(
             self._sanitizer(),
             asyncio.gather(*(journal.read(r.args, max_entries=n) for r, _ in reads)),
-            self._collect_others(),
+            read_others(
+                error_log=self._error_log, speakers=self._diagnostic.satellite_targets(),
+                since=at - _CONTEXT_SPEAKER_WINDOW, until=at + _CONTEXT_SPEAKER_WINDOW,
+            ),
             self._running_build(),
             self._source_state_at(at),
         )
-        not_collected += self._journal_failures([r for r, _ in reads], results)
+        not_collected += journal_failures([r for r, _ in reads], results)
 
         def answer() -> LogContext:
-            journaled = _one_per_record(self._parse(
+            journaled = _one_per_record(parse_reads(
                 [r for r, _ in reads], [entries for (entries, _, _) in results],
             ))
             # Where a journal read was cut, a line from elsewhere past the cut
@@ -293,7 +248,7 @@ class LogService:
                     high = min(high, max(times)) if high else max(times)
             merged = sorted(
                 (
-                    line for line in (*journaled, *_drop_journaled(others, journaled))
+                    line for line in (*journaled, *drop_journaled(others, journaled))
                     if (low is None or line.at >= low) and (high is None or line.at <= high)
                 ),
                 key=lambda line: line.at,
@@ -340,27 +295,6 @@ class LogService:
         redactor = await self._diagnostic.build_redactor()
         return lambda text, unit=None: strip_public_ipv4(redactor(text, unit=unit))
 
-    @staticmethod
-    def _parse(reads: Sequence[journal.JournalRead], entries: Sequence[Sequence[Dict[str, Any]]]) -> List[LogLine]:
-        """The lines of several reads, each entry once (the reads are
-        disjoint by construction; the cursor makes sure of it), oldest first."""
-        milo = journal.one_per_entry([e for r, got in zip(reads, entries) if not r.kernel for e in got])
-        kernel = journal.one_per_entry([e for r, got in zip(reads, entries) if r.kernel for e in got])
-        return sorted([*parse_journal(milo), *parse_kernel(kernel)], key=lambda line: line.at)
-
-    @staticmethod
-    def _journal_failures(reads: Sequence[journal.JournalRead], results) -> List[NotCollected]:
-        """One entry per read that failed, under that read's name, each
-        (name, reason) said once: a failed kernel read is not "the journal".
-        Every read failing the same way (no journalctl) is the journal's."""
-        reasons = [reason for (_, reason, _) in results]
-        if reasons and None not in reasons and len(set(reasons)) == 1:
-            return [NotCollected(source="journal", reason=reasons[0])]
-        failures = dict.fromkeys(
-            (read.name, reason) for read, reason in zip(reads, reasons) if reason is not None
-        )
-        return [NotCollected(source=name, reason=reason) for name, reason in failures]
-
     def _redacted(self, lines: Sequence[LogLine], sanitize: Callable[..., str]) -> List[LogLine]:
         """Each line redacted, oldest first: the Redactor labels a value
         found by its shape in the order it meets it."""
@@ -400,79 +334,6 @@ class LogService:
         ] or list(range(len(lines)))
         return min(candidates, key=lambda i: abs((lines[i].at - at).total_seconds())), False
 
-    async def _collect_others(
-        self, *, errors_log_since: Optional[datetime] = None,
-    ) -> Tuple[List[LogLine], List[NotCollected]]:
-        """errors.log's lines and every speaker's, and what could not be read."""
-        (errors_log, errors_reason), satellites = await asyncio.gather(
-            self._read_errors_log(since=errors_log_since), self._satellite_blocks(),
-        )
-        not_collected = []
-        if isinstance(satellites, str):
-            not_collected.append(NotCollected(source="speakers", reason=satellites))
-            satellites = []
-        if errors_reason:
-            not_collected.append(NotCollected(source="errors.log", reason=errors_reason))
-        lines = list(errors_log)
-        for result in satellites:
-            label = result.get("label", "?")
-            if not result.get("reachable"):
-                not_collected.append(NotCollected(
-                    source=f"speaker {label}", reason=result.get("reason") or "no answer",
-                ))
-                continue
-            lines += parse_satellite_block(label, result.get("text") or "")
-        return lines, not_collected
-
-    async def _satellite_blocks(self):
-        """Each speaker's block, or why none could be asked."""
-        try:
-            return await self._diagnostic.satellite_blocks()
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
-            # Best effort, like the report's SATELLITES section: the page
-            # answers without them, and says so. Each speaker's own failure
-            # is its result already; this is the session that could not open.
-            logger.warning("logs could not ask the speakers: %s", e)
-            return f"{type(e).__name__}: {e}"
-
-    async def _read_errors_log(
-        self, *, since: Optional[datetime] = None,
-    ) -> Tuple[List[LogLine], Optional[str]]:
-        """errors.log and its rotations (`errors.log.N`, the oldest the
-        highest N), oldest line first; the reason when the file itself could
-        not be read. A rotation that is absent is no fault: there is one only
-        once the file filled. With `since`, a rotation last written before it
-        holds nothing of the window and is not read at all."""
-        base = self._error_log
-        oldest = since.timestamp() if since is not None else None
-
-        def read_all() -> Tuple[List[LogLine], Optional[str]]:
-            rotations = sorted(
-                (p for p in base.parent.glob(f"{base.name}.*") if p.suffix[1:].isdigit()),
-                key=lambda p: int(p.suffix[1:]),
-                reverse=True,
-            )
-            lines: List[LogLine] = []
-            for path in rotations:
-                try:
-                    if oldest is not None and path.stat().st_mtime < oldest:
-                        continue
-                    lines += parse_errors_log(path.read_text(encoding="utf-8", errors="replace"))
-                except OSError as e:
-                    logger.warning("logs: %s could not be read: %s", path.name, e)
-            try:
-                text = base.read_text(encoding="utf-8", errors="replace")
-            except FileNotFoundError:
-                return lines, f"{base} does not exist"
-            except OSError as e:
-                return lines, f"{base} could not be read ({e.strerror or e})"
-            return lines + parse_errors_log(text), None
-
-        try:
-            return await asyncio.to_thread(read_all)
-        except OSError as e:
-            return [], f"{base.parent} could not be listed ({e.strerror or e})"
-
     async def _running_build(self) -> RunningBuild:
         if self._version is None:
             return RunningBuild()
@@ -498,7 +359,7 @@ class LogService:
         for entry in entries:
             if "__REALTIME_TIMESTAMP" not in entry:
                 continue
-            raw = _first_line(message_text(entry.get("MESSAGE")))
+            raw = first_line(message_text(entry.get("MESSAGE")))
             moment = journal_time(entry)
             transition = _TRANSITION.match(raw)
             if transition:

@@ -327,3 +327,106 @@ def test_the_kernel_tail_is_the_whole_boots_warnings(client, monkeypatch):
     assert unit[unit.index("-o") + 1] == "short-iso"
     stamp = datetime.fromtimestamp(1764219603).astimezone().isoformat(timespec="seconds")
     assert f"--- kernel ---\n{stamp} milo-client kernel: <2>hwmon hwmon1: Undervoltage detected!" in text
+
+
+# --------------------------------------------------------------------------- #
+# `GET /diagnostic/journal` — a window of days, for the server's logs page
+# --------------------------------------------------------------------------- #
+
+class _Journalctl:
+    """journalctl as the window reads spawn it: answers per read, by its name."""
+
+    def __init__(self, answers):
+        self.answers = answers  # read name -> (returncode, stdout, stderr)
+        self.calls = []
+
+    async def __call__(self, *args, **_):
+        argv = list(args)
+        self.calls.append(argv)
+        name = ("kernel" if "_TRANSPORT=kernel" in argv
+                else "text-level" if "-g" in argv else "warnings")
+        code, out, err = self.answers.get(name, (0, "", ""))
+
+        async def communicate():
+            return out.encode(), err.encode()
+        return SimpleNamespace(communicate=communicate, returncode=code,
+                               kill=lambda: None, wait=None)
+
+
+def _line(**fields):
+    return json.dumps({"__REALTIME_TIMESTAMP": "1764219603000000", "PRIORITY": "6", **fields})
+
+
+def test_the_window_is_read_at_warning_from_the_satellites_own_units_and_kernel(client, monkeypatch):
+    """The free-text whitelist holds here too: a read names the satellite's
+    units or the kernel's transport, never a bare read, which would answer for
+    NetworkManager and wpa_supplicant and their SSIDs. Each read is the
+    window asked, capped, newest kept, at warning — by priority, or by text
+    for the two units whose level is in their text alone."""
+    journalctl = _Journalctl({})
+    monkeypatch.setattr(diagnostic.asyncio, "create_subprocess_exec", journalctl)
+
+    body = client.get("/diagnostic/journal", params={"since": 100.5, "until": 200.25}).json()
+
+    assert [read["name"] for read in body["reads"]] == ["warnings", "text-level", "kernel"]
+    assert len(journalctl.calls) == 3
+    for call in journalctl.calls:
+        assert call[0] == "journalctl"
+        assert "-u" in call or "_TRANSPORT=kernel" in call, call
+        for index, token in enumerate(call):
+            if token == "-u":
+                assert call[index + 1].startswith("milo-client"), call
+        assert call[call.index("--since") + 1] == "@100.500000"
+        assert call[call.index("--until") + 1] == "@200.250000"
+        assert call[call.index("-n") + 1] == str(diagnostic.JOURNAL_WINDOW_MAX_ENTRIES)
+    warnings, text_level, kernel = journalctl.calls
+    assert warnings[warnings.index("-p") + 1] == "warning"
+    assert kernel[kernel.index("-p") + 1] == "warning"
+    assert text_level[text_level.index("-p") + 1] == "notice..debug"
+    assert text_level[text_level.index("-g") + 1] == diagnostic.TEXT_LEVEL_GREP
+
+
+@pytest.mark.parametrize("message, kept", [
+    ("2026-11-25 23:43:15,855 - services.equalizer.EqualizerService - ERROR - Not connected", True),
+    ("2026-11-25 23:43:17,355 - services.equalizer.EqualizerService - WARNING - Failed to connect", True),
+    ("2026-11-25 23:43:12.780842 WARN [camilladsp] <src/bin.rs:1061> Forcing a shutdown", True),
+    ('INFO:     192.168.1.55:55848 - "PUT /equalizer/filters HTTP/1.1" 400 Bad Request', True),
+    ('INFO:     192.168.1.55:58228 - "GET /diagnostic HTTP/1.1" 200 OK', False),
+    ("2026-11-27 11:54:53.703065 INFO [camilladsp] <src/bin.rs:848> Running on linux, aarch64", False),
+    ("2026-11-27 13:50:00,000 - services.registration - INFO - Registered", False),
+])
+def test_the_text_level_read_keeps_what_says_warning_or_worse(message, kept):
+    """The pattern journalctl is handed, as written (PCRE2 and Python agree on
+    it): a line the text read misses is a warning of the app or of CamillaDSP
+    the page never shows, since journald filed it at priority 6."""
+    import re
+    assert bool(re.search(diagnostic.TEXT_LEVEL_GREP, message)) is kept
+
+
+def test_each_read_answers_its_entries_its_cut_and_its_failure_alone(client, monkeypatch):
+    """A read that fails costs its own entries, never the answer; a `-g` that
+    matched nothing (journalctl exits 1, and says nothing) is an empty read,
+    not a failure; a read that reached its cap says so, since its older lines
+    in the window are missing."""
+    monkeypatch.setattr(diagnostic, "JOURNAL_WINDOW_MAX_ENTRIES", 2)
+    journalctl = _Journalctl({
+        "warnings": (0, _line(MESSAGE="(Alsa) XRUN", PRIORITY="3") + "\n"
+                     + _line(MESSAGE="(Snapclient) deprecated", PRIORITY="4") + "\n", ""),
+        "text-level": (1, "", ""),
+        "kernel": (1, "", "Failed to open journal: Permission denied"),
+    })
+    monkeypatch.setattr(diagnostic.asyncio, "create_subprocess_exec", journalctl)
+
+    reads = {read["name"]: read for read in
+             client.get("/diagnostic/journal", params={"since": 1, "until": 2}).json()["reads"]}
+
+    assert [e["MESSAGE"] for e in reads["warnings"]["entries"]] == ["(Alsa) XRUN", "(Snapclient) deprecated"]
+    assert reads["warnings"]["cut"] is True and reads["warnings"]["reason"] is None
+    assert reads["text-level"] == {"name": "text-level", "kernel": False, "entries": [],
+                                   "cut": False, "reason": None}
+    assert reads["kernel"]["kernel"] is True and reads["kernel"]["entries"] == []
+    assert reads["kernel"]["reason"] == "journalctl exited 1: Failed to open journal: Permission denied"
+
+
+def test_a_window_that_ends_before_it_starts_is_refused(client):
+    assert client.get("/diagnostic/journal", params={"since": 5, "until": 5}).status_code == 422

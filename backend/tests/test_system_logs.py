@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from aiohttp import web
 
 from backend.core.log_handler import errors_log_formatter
 from backend.core.multiroom.models import Client
@@ -40,6 +41,7 @@ from backend.core.system.diagnostic import probes
 from backend.core.system.diagnostic import service as diagnostic_module
 from backend.core.system.diagnostic.service import DiagnosticService
 from backend.core.system.logs import journal as journal_module
+from backend.core.system.logs import satellites as satellites_module
 from backend.core.system.logs.service import LogService
 
 SSID = "Livebox-Maison"
@@ -264,7 +266,7 @@ def unit(monkeypatch, tmp_path):
         settings_service=settings,
     )
     service.firmware = SimpleNamespace(asked=asked, throttled=throttled)
-    service.speaker_blocks = None
+    service.speaker = speaker
     return service, errors_log
 
 
@@ -840,39 +842,125 @@ def test_a_word_that_is_not_the_throttled_one_reads_as_no_value(answer):
 
 
 # --------------------------------------------------------------------------- #
-# A speaker's kernel
+# A speaker's journal, by window
 # --------------------------------------------------------------------------- #
 
-async def test_a_speakers_kernel_warnings_pass_the_severity_filter(unit, monkeypatch):
-    """A speaker sends its kernel's warnings and above only, each opened by
-    its syslog priority, which short-iso cannot carry: an undervoltage there
-    (`dev_crit`) is critical on the page, so "errors only" keeps it, filed
-    under the speaker's label, never its room name; a warning is a warning."""
+@pytest.fixture
+async def speaker_answers(unit, monkeypatch):
+    """The fixture's speaker online, answering its `/diagnostic/journal` from a
+    real HTTP server on this host: `answer["reads"]` is what it sends, `asked`
+    the windows it was asked, `status` its HTTP status."""
+    service, _ = unit
+    answer = {"reads": [], "journal_readable": True, "status": 200}
+    asked = []
+
+    async def journal(request):
+        asked.append((float(request.query["since"]), float(request.query["until"])))
+        if answer["status"] != 200:
+            return web.Response(status=answer["status"], text='{"detail":"Not Found"}')
+        return web.json_response({"reads": answer["reads"], "journal_readable": answer["journal_readable"]})
+
+    app = web.Application()
+    app.router.add_get("/diagnostic/journal", journal)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # 127.0.0.1 is the local unit to the registry (Client.is_local): another
+    # loopback address is a remote speaker.
+    site = web.TCPSite(runner, "127.0.0.2", 0)
+    await site.start()
+    monkeypatch.setattr(satellites_module, "CLIENT_API_PORT", site._server.sockets[0].getsockname()[1])
+    service.speaker.online, service.speaker.ip = True, "127.0.0.2"
+    answer["asked"] = asked
+    yield answer
+    await runner.cleanup()
+
+
+def _read(name, entries, *, cut=False, reason=None):
+    return {"name": name, "kernel": name == "kernel", "entries": entries, "cut": cut, "reason": reason}
+
+
+async def test_a_speakers_warnings_are_read_over_the_window_and_filed_under_its_label(
+    unit, monkeypatch, speaker_answers,
+):
+    """A speaker is asked for the page's window, not a tail, and each of its
+    lines is filed under its label, never its room name, at the level its line
+    says: Python's `- ERROR -` in its app's text (journald files that stderr
+    at priority 6), snapclient's syslog priority, the kernel's priority (an
+    undervoltage, `dev_crit`, is critical, so "errors only" keeps it), and a
+    request it refused, which its uvicorn access line says by its status."""
     service, errors_log = unit
     _write_errors_logs(errors_log, rotated=[], current=[])
     _fake_journald(monkeypatch, [])
-    stamp = _ago(200).astimezone(timezone(timedelta(hours=1))).isoformat(timespec="seconds")
-    block = "\n".join([
-        "[identity]", "uptime : 0d 5h 2m", "", "[journal]",
-        "--- milo-client.service ---",
-        f"{stamp} milo-client python[512]: INFO:app:started",
-        "--- kernel ---",
-        f"{stamp} milo-client kernel: <2>hwmon hwmon1: Undervoltage detected!",
-        f"{stamp} milo-client kernel: <4>usb 1-1.3: device descriptor read/64, error -71",
-    ])
-
-    async def blocks():
-        return [{"reachable": True, "label": "client-1", "text": block}]
-    monkeypatch.setattr(service._diagnostic, "satellite_blocks", blocks)
+    speaker_answers["reads"] = [
+        _read("warnings", [_entry(_ago(200), "milo-client-snapclient.service",
+                                  "(Alsa) XRUN while waiting for PCM: Broken pipe", priority=3)]),
+        _read("text-level", [
+            _entry(_ago(190), "milo-client.service", "2026-11-25 23:43:15,855 - "
+                   "services.equalizer.EqualizerService - ERROR - Not connected to CamillaDSP"),
+            _entry(_ago(190), "milo-client.service",
+                   'INFO:     192.168.1.55:55848 - "PUT /equalizer/filters HTTP/1.1" 400 Bad Request'),
+        ]),
+        _read("kernel", [
+            _entry(_ago(180), "", "hwmon hwmon1: Undervoltage detected!", priority=2),
+            _entry(_ago(180), "", "usb 1-1.3: device descriptor read/64, error -71", priority=4),
+        ]),
+    ]
 
     page = await service.read(since=timedelta(hours=6), level="warning")
     errors = await service.read(since=timedelta(hours=6), level="error")
 
-    assert sorted((g.service, g.level, g.sample) for g in page.groups) == [
-        ("client-1/kernel", "critical", "hwmon hwmon1: Undervoltage detected!"),
-        ("client-1/kernel", "warning", "usb 1-1.3: device descriptor read/64, error -71"),
+    assert sorted((g.service, g.level, g.logger, g.sample) for g in page.groups) == [
+        ("client-1/kernel", "critical", None, "hwmon hwmon1: Undervoltage detected!"),
+        ("client-1/kernel", "warning", None, "usb 1-1.3: device descriptor read/64, error -71"),
+        ("client-1/milo-client-snapclient.service", "error", None,
+         "(Alsa) XRUN while waiting for PCM: Broken pipe"),
+        ("client-1/milo-client.service", "error", "services.equalizer.EqualizerService",
+         "Not connected to CamillaDSP"),
+        ("client-1/milo-client.service", "warning", None,
+         'INFO:     192.168.1.55:55848 - "PUT /equalizer/filters HTTP/1.1" 400 Bad Request'),
     ]
-    assert [(g.service, g.level) for g in errors.groups] == [("client-1/kernel", "critical")]
+    assert {(g.service, g.level) for g in errors.groups} == {
+        ("client-1/kernel", "critical"), ("client-1/milo-client-snapclient.service", "error"),
+        ("client-1/milo-client.service", "error"),
+    }
+    since, until = speaker_answers["asked"][0]
+    assert until - since == pytest.approx(6 * 3600, abs=5)
+    assert SPEAKER_NAME not in json.dumps(page.model_dump(mode="json"))
+    assert page.not_collected == []
+
+
+async def test_what_a_speaker_could_not_read_is_said_and_the_page_still_answers(
+    unit, monkeypatch, speaker_answers,
+):
+    """A read the speaker could not make, or that its cap cut, is named under
+    the speaker; a speaker whose app predates the route answers 404, named the
+    same way: the server's own lines are on the page all the same."""
+    service, errors_log = unit
+    _write_errors_logs(errors_log, rotated=[], current=[])
+    _fake_journald(monkeypatch, [_entry(_ago(5), "milo-backend.service", "WARNING:backend.x:server side",
+                                        priority=4)])
+    speaker_answers["reads"] = [
+        _read("warnings", [], cut=True),
+        _read("kernel", [], reason="timed out after 8 s"),
+    ]
+    speaker_answers["journal_readable"] = False
+
+    page = await service.read(since=timedelta(hours=1), level="warning")
+
+    assert [(n.source, n.reason) for n in page.not_collected] == [
+        ("speaker client-1 warnings", "cut at its cap on the speaker: the window's older lines are missing"),
+        ("speaker client-1 kernel", "timed out after 8 s"),
+        ("speaker client-1",
+         "account in neither adm nor systemd-journal: systemd and kernel lines are unreadable"),
+    ]
+    assert [g.sample for g in page.groups] == ["server side"]
+
+    speaker_answers["status"] = 404
+    page = await service.read(since=timedelta(hours=1), level="warning")
+    assert [(n.source, n.reason) for n in page.not_collected] == [
+        ("speaker client-1", 'answered HTTP 404: {"detail":"Not Found"}'),
+    ]
+    assert [g.sample for g in page.groups] == ["server side"]
 
 
 async def test_a_journal_read_that_fails_is_named_not_the_whole_journal(unit, monkeypatch):

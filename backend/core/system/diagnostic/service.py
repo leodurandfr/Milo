@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from backend.config.constants import ERROR_LOG_FILE, MUSIC_LIBRARY_DATA_FILE
 from backend.core.system.diagnostic import collectors, probes, render, satellite
+from backend.core.system.logs.satellites import SatelliteTarget
 from backend.core.system.diagnostic.whitelist import (
     JOURNAL_EXTRA_UNITS,
     JOURNAL_INCLUDE_KERNEL,
@@ -163,6 +164,19 @@ class DiagnosticService:
         ctx.zone_labels = satellite.zone_labels_for(self._zone_ids())
         await self._build_redactor(ctx, clients)
         return ctx.sanitize
+
+    def satellite_targets(self) -> List[SatelliteTarget]:
+        """Every remote client the registry holds, under the label a report
+        gives it, for a reader of their journals (the logs page): whether it
+        shows online, and where to ask."""
+        clients = list(self._clients())
+        labels = satellite.labels_for(clients)
+        return [
+            SatelliteTarget(
+                label=labels.get(c.mac_id, c.mac_id), mac_id=c.mac_id, ip=c.ip, online=bool(c.online),
+            )
+            for c in clients if not getattr(c, "is_local", False) and c.ip
+        ]
 
     async def satellite_blocks(self) -> List[Dict[str, Any]]:
         """Each remote client's own diagnostic block, asked as the report asks

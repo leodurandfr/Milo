@@ -1,10 +1,11 @@
-"""Diagnostic route — the only way anything a satellite knows leaves it.
+"""Diagnostic routes — the only way anything a satellite knows leaves it.
 
 A satellite has no log surface in the Milō UI at all. Its journal, its ALSA
-state and its unit states are reachable from the server over this route and
-nowhere else, which makes it the half of a multiroom fault that is normally
-invisible. The server asks for it while building its own report and pastes the
-answer in as a block.
+state and its unit states are reachable from the server over these two routes
+and nowhere else, which makes it the half of a multiroom fault that is normally
+invisible. The server asks for `/diagnostic` while building its own report and
+pastes the answer in as a block; it asks for `/diagnostic/journal` for its logs
+page, which reads a window of days where the block holds a few lines.
 
 Everything here is bounded and nothing here fails the route: the server's own
 timeout is short, and a probe that hangs must cost its own line rather than the
@@ -34,7 +35,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from routes import health
 
@@ -265,6 +266,82 @@ def _journal_readable() -> bool:
     return False
 
 
+# --------------------------------------------------------------------------- #
+# The journal by window (`/diagnostic/journal`)
+# --------------------------------------------------------------------------- #
+
+# The server's logs page reads a window as it reads its own journal
+# (backend/core/system/logs/journal.py): warnings and above, each read bounded
+# in entries (newest kept) and in time, and journalctl filters before the cap,
+# so a week fits where every level would not (a week of snapclient here holds
+# some 15 000 lines, half of them errors only while the server is away).
+JOURNAL_WINDOW_MAX_ENTRIES = 5000
+JOURNAL_WINDOW_TIMEOUT = 8.0
+_JOURNAL_FIELDS = "MESSAGE,PRIORITY,_SYSTEMD_UNIT,UNIT,SYSLOG_IDENTIFIER,_PID"
+# Where a unit's level is in its text alone. journald files the app's and
+# CamillaDSP's stderr at priority 6 (measured: every line of both); snapclient
+# writes to syslog, so its priority says its level, as systemd's own lines
+# about a unit do. The app writes Python's `- LEVEL -` and uvicorn's access
+# line, whose status is the only word of a request the app refused; CamillaDSP
+# writes `WARN [` / `ERROR [`. Uppercase, so journalctl matches it as written.
+TEXT_LEVEL_UNITS = ("milo-client.service", "milo-client-camilladsp.service")
+TEXT_LEVEL_GREP = r' - (WARNING|ERROR|CRITICAL) - | (WARN|ERROR) \[|" [45][0-9]{2} '
+JOURNAL_WINDOW_READS = (
+    ("warnings", ("-u", UNIT_GLOB, "-p", "warning")),
+    ("text-level", (*(arg for unit in TEXT_LEVEL_UNITS for arg in ("-u", unit)),
+                    "-p", "notice..debug", "-g", TEXT_LEVEL_GREP)),
+    # Every boot: `-k` implies `-b`, the transport match does not.
+    ("kernel", ("_TRANSPORT=kernel", "-p", "warning")),
+)
+
+
+async def _journal_entries(args: Sequence[str]) -> Tuple[List[dict], Optional[str]]:
+    """The JSON entries of one read, oldest first, or why it could not be read.
+    journalctl answers 1, silently, to a `-g` that matched nothing: no entries,
+    not a failure. A 1 that says something on stderr is one."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "journalctl", "--no-pager", "-q", "-o", "json",
+            f"--output-fields={_JOURNAL_FIELDS}", *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except (OSError, ValueError) as e:
+        return [], f"journalctl could not start: {e}"
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), JOURNAL_WINDOW_TIMEOUT)
+    except asyncio.TimeoutError:
+        proc.kill()
+        with contextlib.suppress(ProcessLookupError):
+            await proc.wait()
+        return [], f"timed out after {JOURNAL_WINDOW_TIMEOUT:g} s"
+    silent = not stdout.strip() and not stderr.strip()
+    if proc.returncode != 0 and not (proc.returncode == 1 and silent):
+        reason = stderr.decode("utf-8", errors="replace").strip().splitlines()
+        return [], f"journalctl exited {proc.returncode}" + (f": {reason[-1]}" if reason else "")
+    entries = []
+    for raw in stdout.splitlines():
+        with contextlib.suppress(ValueError):
+            entry = json.loads(raw)
+            if isinstance(entry, dict):
+                entries.append(entry)
+    return entries, None
+
+
+async def _journal_window(since: float, until: float) -> List[Dict]:
+    """Each read of the window, its entries and whether its cap cut it."""
+    window = ("--since", f"@{since:.6f}", "--until", f"@{until:.6f}",
+              "-n", str(JOURNAL_WINDOW_MAX_ENTRIES))
+    results = await asyncio.gather(*(
+        _journal_entries((*args, *window)) for _, args in JOURNAL_WINDOW_READS
+    ))
+    return [
+        {"name": name, "kernel": name == "kernel", "entries": entries,
+         "cut": len(entries) >= JOURNAL_WINDOW_MAX_ENTRIES, "reason": reason}
+        for (name, _), (entries, reason) in zip(JOURNAL_WINDOW_READS, results)
+    ]
+
+
 def create_diagnostic_router() -> APIRouter:
     router = APIRouter(tags=["diagnostic"])
 
@@ -321,6 +398,21 @@ def create_diagnostic_router() -> APIRouter:
             "hostname": platform.node(),
             "text": text,
             "unavailable": unavailable,
+        }
+
+    @router.get("/diagnostic/journal")
+    async def get_journal(since: float, until: float):
+        """This satellite's journal from `since` to `until` (epoch seconds), at
+        warning and above: its own units and its kernel, each read whole up to
+        its cap, newest kept, and saying when the cap cut it. What one read
+        could not do is its `reason`, never the route's failure, as for the
+        block above. `journal_readable` false says the systemd and kernel lines
+        are missing: outside `adm`, journalctl leaves them out and exits 0."""
+        if not since < until:
+            raise HTTPException(status_code=422, detail="since must come before until")
+        return {
+            "reads": await _journal_window(since, until),
+            "journal_readable": _journal_readable(),
         }
 
     return router

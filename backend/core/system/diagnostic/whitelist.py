@@ -439,8 +439,8 @@ WIFI_UNITS = frozenset({"NetworkManager.service", "wpa_supplicant.service"})
 # The system services the logs page reads besides Milō's own units (and the
 # kernel, read on its own), at warning and above only — the context around an
 # event included —, each line through the Redactor like every other: what Milō
-# depends on and fails with it. Exactly these; avahi, dbus and the rest are not
-# read. systemd's own lines about a `milo-*` unit come with that unit's read.
+# depends on and fails with it. Exactly these; dbus and the rest are not read.
+# systemd's own lines about a `milo-*` unit come with that unit's read.
 LOGS_PAGE_SYSTEM_UNITS = {
     "NetworkManager.service": "the WiFi and the Ethernet link: a connection that drops, a profile it cannot read",
     "wpa_supplicant.service": "the WiFi association itself: a driver error, a network it gave up on",
@@ -450,6 +450,8 @@ LOGS_PAGE_SYSTEM_UNITS = {
         "its request errors go to /var/log/nginx/error.log, which is not read)"
     ),
     "systemd-udevd.service": "devices as they appear: a sound card, a USB drive or a CD drive whose rules failed",
+    "avahi-daemon.service": "milo.local, which every speaker finds the server by: a name conflict, a daemon that failed",
+    "seatd.service": "the kiosk's input devices: a Bluetooth remote that flaps shows here and nowhere else",
 }
 
 # The kernel ring is admitted on its own: undervoltage, ALSA xruns, CIFS

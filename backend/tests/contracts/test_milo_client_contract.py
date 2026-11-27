@@ -1451,6 +1451,7 @@ _EXPECTED_RESPONSE_READS = {
         "snapclient.running", "snapclient.version", "uptime",
     },
     ("GET", "/diagnostic"): {"hostname", "text", "unavailable"},
+    ("GET", "/diagnostic/journal"): {"reads", "journal_readable"},
     ("GET", "/api/hardware"): {"audio", "audio.id", "audio.overlay"},
     ("POST", "/update"): {"started", "current_version", "message"},
     ("GET", "/update/status"): {
