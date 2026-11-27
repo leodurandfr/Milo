@@ -38,6 +38,7 @@
       "device": "Gerät"
     },
     "languageRegion": "Sprache und Region",
+    "language": "Sprache",
     "dock": "Dock",
     "volume": "Lautstärke",
     "screen": "Anzeige",
@@ -1020,6 +1021,9 @@
       "mismatch": "Die beiden Passwörter stimmen nicht überein.",
       "tooShort": "Das Passwort muss mindestens {n} Zeichen lang sein."
     },
+    "troubleshooting": {
+      "title": "Fehlerbehebung"
+    },
     "diagnostic": {
       "title": "Diagnose",
       "description": "Ein Textbericht über Ihr Milō (Version, Audiopfad, Lautsprecher, jüngste Fehler), zum Senden, falls etwas nicht stimmt.",
@@ -1074,8 +1078,7 @@
     }
   },
   "timezone": {
-    "title": "Zeitzone",
-    "area": "Region",
+    "area": "Zeitzone",
     "location": "Ort",
     "selectArea": "Region auswählen",
     "selectLocation": "Ort auswählen",

@@ -1,9 +1,14 @@
 <!-- frontend/src/components/settings/categories/SystemSettings.vue -->
-<!-- SSH, with the account password one level down. SSH stays closed on the
-     factory password. The logs page is a page of its own (/logs). -->
+<!-- The unit itself, as cards: what it is, the language and timezone it was
+     set up with, how to reach it (SSH, with the account password one level
+     down; SSH stays closed on the factory password), how to see what went
+     wrong (the logs page, a page of its own at /logs, and the report to send),
+     and the reset last. -->
 <template>
   <SectionStack>
     <SystemInfoSection />
+
+    <LanguageRegionSection />
 
     <SshSection :state="ssh" host="milo.local" user="milo" :busy="sshBusy" :error="sshError"
       opens-on-own-password
@@ -11,11 +16,26 @@
       :factory-password-notice="t('system.ssh.factoryPassword')"
       @toggle="handleSshToggle" @open-password="$emit('open-password')" />
 
-    <SectionCard :title="t('system.diagnostic.title')" :description="t('system.diagnostic.description')">
-      <Button variant="brand" :loading="generating" :disabled="generating"
-        @click="generateReport">
-        {{ generating ? t('system.diagnostic.generating') : t('system.diagnostic.generate') }}
-      </Button>
+    <!-- Troubleshooting: the logs read on the page, then the same read as a
+         report to send. The logs page drops the app's chrome, so this modal
+         closes as it opens. -->
+    <SectionCard :title="t('system.troubleshooting.title')">
+      <div class="troubleshooting-item">
+        <span class="text-body-medium">{{ t('system.logs.title') }}</span>
+        <p class="text-body-small troubleshooting-item__description">{{ t('system.logs.description') }}</p>
+        <Button variant="control" @click="router.push({ name: 'logs' })">
+          {{ t('system.logs.open') }}
+        </Button>
+      </div>
+
+      <div class="troubleshooting-item">
+        <span class="text-body-medium">{{ t('system.diagnostic.title') }}</span>
+        <p class="text-body-small troubleshooting-item__description">{{ t('system.diagnostic.description') }}</p>
+        <Button variant="brand" :loading="generating" :disabled="generating"
+          @click="generateReport">
+          {{ generating ? t('system.diagnostic.generating') : t('system.diagnostic.generate') }}
+        </Button>
+      </div>
 
       <NoticeBox v-if="diagnosticError !== null" :detail="diagnosticError">{{ t('settings.actionFailed') }}</NoticeBox>
 
@@ -50,14 +70,6 @@
       </template>
     </SectionCard>
 
-    <!-- Beside the report: the same logs, read on the page rather than sent.
-         The page drops the app's chrome, so this modal closes as it opens. -->
-    <SectionCard :title="t('system.logs.title')" :description="t('system.logs.description')">
-      <Button variant="control" @click="router.push({ name: 'logs' })">
-        {{ t('system.logs.open') }}
-      </Button>
-    </SectionCard>
-
     <SectionCard :title="t('system.reset.title')" :description="t('system.reset.description')">
       <!-- Red from the first press, not only once armed: the action is
            destructive whether or not it is confirmed yet, and the two-step is
@@ -86,6 +98,7 @@ import NoticeBox from '@/components/ui/NoticeBox.vue';
 import Button from '@/components/ui/Button.vue';
 import SystemInfoSection from '@/components/settings/categories/SystemInfoSection.vue';
 import SshSection from '@/components/settings/categories/SshSection.vue';
+import LanguageRegionSection from '@/components/settings/categories/LanguageRegionSection.vue';
 
 defineEmits(['open-password']);
 
@@ -190,6 +203,18 @@ onMounted(systemStore.loadSsh);
 </script>
 
 <style scoped>
+.troubleshooting-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-02);
+}
+
+.troubleshooting-item__description {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
 .diagnostic-actions {
   display: flex;
   gap: var(--space-03);

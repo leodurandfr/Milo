@@ -38,6 +38,7 @@
       "device": "Device"
     },
     "languageRegion": "Language and region",
+    "language": "Language",
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Display",
@@ -1020,6 +1021,9 @@
       "mismatch": "The two passwords do not match.",
       "tooShort": "The password must be at least {n} characters."
     },
+    "troubleshooting": {
+      "title": "Troubleshooting"
+    },
     "diagnostic": {
       "title": "Diagnostic",
       "description": "A text report about your Milō (version, audio path, speakers, recent errors), to send if something goes wrong.",
@@ -1074,8 +1078,7 @@
     }
   },
   "timezone": {
-    "title": "Time zone",
-    "area": "Area",
+    "area": "Time zone",
     "location": "Location",
     "selectArea": "Select an area",
     "selectLocation": "Select a location",

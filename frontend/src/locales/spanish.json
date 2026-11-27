@@ -38,6 +38,7 @@
       "device": "Dispositivo"
     },
     "languageRegion": "Idioma y región",
+    "language": "Idioma",
     "dock": "Dock",
     "volume": "Volumen",
     "screen": "Pantalla",
@@ -1020,6 +1021,9 @@
       "mismatch": "Las dos contraseñas no coinciden.",
       "tooShort": "La contraseña debe tener al menos {n} caracteres."
     },
+    "troubleshooting": {
+      "title": "Solución de problemas"
+    },
     "diagnostic": {
       "title": "Diagnóstico",
       "description": "Un informe de texto sobre su Milō (versión, ruta de audio, altavoces, errores recientes), para enviar si algo no funciona.",
@@ -1074,8 +1078,7 @@
     }
   },
   "timezone": {
-    "title": "Zona horaria",
-    "area": "Área",
+    "area": "Zona horaria",
     "location": "Ciudad",
     "selectArea": "Seleccionar un área",
     "selectLocation": "Seleccionar una ciudad",

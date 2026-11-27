@@ -5,7 +5,6 @@
 // instead of the main bundle every boot downloads. Each glyph paints in
 // currentColor, which SettingsModal's tile sets from a token, so the glyph
 // follows the theme with the tile behind it.
-import languages from '@/assets/settings-icons/languages.svg?raw';
 import dock from '@/assets/settings-icons/applications.svg?raw';
 import volume from '@/assets/settings-icons/volume.svg?raw';
 import display from '@/assets/settings-icons/display.svg?raw';
@@ -25,7 +24,7 @@ import reboot from '@/assets/settings-icons/reboot.svg?raw';
 import shutdown from '@/assets/settings-icons/shutdown.svg?raw';
 
 export const SETTINGS_ICONS = {
-  languages, dock, volume, display, audioPlayback, remoteControls, multiroom,
+  dock, volume, display, audioPlayback, remoteControls, multiroom,
   updates, system, radio, mac, spotify, qobuz, musicLibrary, hardware, network,
   reboot, shutdown
 };

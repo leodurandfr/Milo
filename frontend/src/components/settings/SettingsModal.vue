@@ -62,7 +62,6 @@
         </SectionCard>
       </div>
 
-      <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
 
       <DockSettings v-else-if="currentView === 'apps'" key="apps" class="view-content"
         @open-volume="push('dock-volume')" />
@@ -185,7 +184,6 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import { SETTINGS_ICONS } from '@/components/settings/settingsIcons';
-import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 
 import DockSettings from '@/components/settings/categories/DockSettings.vue';
@@ -367,10 +365,9 @@ const HOME_SECTIONS = [
       { view: 'network', titleKey: 'settings.network', icon: 'network' },
       { view: 'hardware', titleKey: 'settings.hardware', icon: 'hardware' },
       { view: 'updates', titleKey: 'settings.updates', icon: 'updates' },
-      // Set once, at setup, and rarely again — so it sits low, with the device,
-      // but keeps a row of its own rather than a card inside System: someone
-      // who picked a language they cannot read finds it here by its icon.
-      { view: 'languages', titleKey: 'settings.languageRegion', icon: 'languages' },
+      // Language and timezone are a card of System, its second: set once, at
+      // setup, and found there in two taps by anyone, each language named in
+      // itself.
       { view: 'system', titleKey: 'settings.system', icon: 'system' },
     ],
   },

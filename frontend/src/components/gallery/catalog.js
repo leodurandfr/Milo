@@ -485,7 +485,7 @@ export const ENTRIES = [
     id: 'SectionStack',
     group: 'settings',
     file: 'components/ui/SectionStack.vue',
-    summary: '14 lines and 28 consumers: a flex column that puts one gap between section cards, in the settings and in the modals that stack them alike. It carries nothing else, and that is the entry — the alternative was 28 copies of the same two declarations.',
+    summary: '14 lines and 27 consumers: a flex column that puts one gap between section cards, in the settings and in the modals that stack them alike. It carries nothing else, and that is the entry — the alternative was 27 copies of the same two declarations.',
   },
   {
     id: 'SectionCard',

@@ -38,6 +38,7 @@
       "device": "Dispositivo"
     },
     "languageRegion": "Lingua e regione",
+    "language": "Lingua",
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Schermo",
@@ -1020,6 +1021,9 @@
       "mismatch": "Le due password non coincidono.",
       "tooShort": "La password deve contenere almeno {n} caratteri."
     },
+    "troubleshooting": {
+      "title": "Risoluzione dei problemi"
+    },
     "diagnostic": {
       "title": "Diagnostica",
       "description": "Un rapporto testuale sul suo Milō (versione, percorso audio, altoparlanti, errori recenti), da inviare in caso di problemi.",
@@ -1074,8 +1078,7 @@
     }
   },
   "timezone": {
-    "title": "Fuso orario",
-    "area": "Area",
+    "area": "Fuso orario",
     "location": "Città",
     "selectArea": "Seleziona un'area",
     "selectLocation": "Seleziona una città",

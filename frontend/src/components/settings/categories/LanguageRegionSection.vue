@@ -1,46 +1,36 @@
-<!-- frontend/src/components/settings/categories/LanguageSettings.vue -->
-<!-- Language and timezone: the two answers to "where am I, how do I read
-     things". The timezone is normally already right — the first browser to
-     open the UI reports its own, or the kiosk its WiFi country's, and the
-     backend adopts it while nothing has been chosen
-     (composables/useTimezone.js::adoptTimezone) — so this is the correction,
-     not the question. -->
+<!-- frontend/src/components/settings/categories/LanguageRegionSection.vue -->
+<!-- Language and timezone, one card of Settings › System: the two answers to
+     "where am I, how do I read things", set once at setup and rarely again.
+     The timezone is normally already right — the first browser to open the UI
+     reports its own, or the kiosk its WiFi country's, and the backend adopts it
+     while nothing has been chosen (composables/useTimezone.js::adoptTimezone) —
+     so this is the correction, not the question. Each language is named in
+     itself, so someone who picked one they cannot read still finds their own. -->
 <template>
-  <SectionStack>
-    <SectionCard>
-      <div class="language-grid">
-        <ListItemButton
-          v-for="language in availableLanguages"
-          :key="language.code"
-          :title="language.name"
-          action="radio"
-          :model-value="currentLanguage === language.code"
-          :disabled="languageSaving"
-          @click="selectLanguage(language.code)"
-        />
-      </div>
+  <SectionCard :title="t('settings.languageRegion')">
+    <SettingItem :label="t('settings.language')" inline>
+      <Dropdown :model-value="currentLanguage" :options="languageOptions"
+        :disabled="languageSaving" @change="selectLanguage" />
+    </SettingItem>
 
-      <!-- A language the backend refused: the check mark stays on the one in use. -->
-      <NoticeBox v-if="languageError !== null" :detail="languageError">{{ t('settings.writeRefused') }}</NoticeBox>
-    </SectionCard>
+    <!-- A language the backend refused: the one in use stays selected. -->
+    <NoticeBox v-if="languageError !== null" :detail="languageError">{{ t('settings.writeRefused') }}</NoticeBox>
 
-    <SectionCard :title="t('timezone.title')">
-      <!-- Area then Location: ~490 zones in one dropdown is unusable with a
-           finger, and every zone the backend returns has both halves. -->
-      <SettingItem :label="t('timezone.area')" inline>
-        <Dropdown :model-value="selectedArea" :options="areaOptions"
-          :placeholder="t('timezone.selectArea')" :disabled="saving" @change="selectArea" />
-      </SettingItem>
+    <!-- Area then Location: ~490 zones in one dropdown is unusable with a
+         finger, and every zone the backend returns has both halves. -->
+    <SettingItem :label="t('timezone.area')" inline>
+      <Dropdown :model-value="selectedArea" :options="areaOptions"
+        :placeholder="t('timezone.selectArea')" :disabled="saving" @change="selectArea" />
+    </SettingItem>
 
-      <SettingItem :label="t('timezone.location')" inline>
-        <Dropdown :model-value="selectedLocation" :options="locationOptions"
-          :placeholder="t('timezone.selectLocation')" :disabled="saving || !selectedArea"
-          @change="selectLocation" />
-      </SettingItem>
+    <SettingItem :label="t('timezone.location')" inline>
+      <Dropdown :model-value="selectedLocation" :options="locationOptions"
+        :placeholder="t('timezone.selectLocation')" :disabled="saving || !selectedArea"
+        @change="selectLocation" />
+    </SettingItem>
 
-      <NoticeBox v-if="timezoneError !== null" :detail="timezoneError">{{ t('settings.writeRefused') }}</NoticeBox>
-    </SectionCard>
-  </SectionStack>
+    <NoticeBox v-if="timezoneError !== null" :detail="timezoneError">{{ t('settings.writeRefused') }}</NoticeBox>
+  </SectionCard>
 </template>
 
 <script setup>
@@ -48,9 +38,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import { bcp47For } from '@/constants/countries';
-import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
-import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
@@ -59,6 +47,9 @@ const { t, getAvailableLanguages, getCurrentLanguage, setLanguage } = useI18n();
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
+const languageOptions = computed(() =>
+  availableLanguages.value.map(language => ({ label: language.name, value: language.code }))
+);
 
 const languageSaving = ref(false);
 const languageError = ref(null);
@@ -145,17 +136,3 @@ async function selectLocation(location) {
 
 onMounted(loadTimezone);
 </script>
-
-<style scoped>
-.language-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-01);
-}
-
-@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
-  .language-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

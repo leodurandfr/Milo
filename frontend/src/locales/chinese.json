@@ -38,6 +38,7 @@
       "device": "设备"
     },
     "languageRegion": "语言与地区",
+    "language": "语言",
     "dock": "Dock",
     "volume": "音量",
     "screen": "显示",
@@ -1020,6 +1021,9 @@
       "mismatch": "两次输入的密码不一致。",
       "tooShort": "密码至少需要 {n} 个字符。"
     },
+    "troubleshooting": {
+      "title": "故障排除"
+    },
     "diagnostic": {
       "title": "诊断",
       "description": "一份关于您的 Milō 的文本报告（版本、音频通路、音箱、近期错误），出现问题时可发送。",
@@ -1074,8 +1078,7 @@
     }
   },
   "timezone": {
-    "title": "时区",
-    "area": "地区",
+    "area": "时区",
     "location": "城市",
     "selectArea": "选择地区",
     "selectLocation": "选择城市",

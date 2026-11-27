@@ -38,6 +38,7 @@
       "device": "Appareil"
     },
     "languageRegion": "Langue et région",
+    "language": "Langue",
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Affichage",
@@ -1020,6 +1021,9 @@
       "mismatch": "Les deux mots de passe ne correspondent pas.",
       "tooShort": "Le mot de passe doit contenir au moins {n} caractères."
     },
+    "troubleshooting": {
+      "title": "Dépannage"
+    },
     "diagnostic": {
       "title": "Diagnostic",
       "description": "Un rapport texte sur votre Milō (version, chemin audio, enceintes, erreurs récentes), à envoyer en cas de problème.",
@@ -1074,8 +1078,7 @@
     }
   },
   "timezone": {
-    "title": "Fuseau horaire",
-    "area": "Région",
+    "area": "Fuseau horaire",
     "location": "Ville",
     "selectArea": "Sélectionner une région",
     "selectLocation": "Sélectionner une ville",
