@@ -364,6 +364,6 @@ The 226 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | `PATCH` | `/api/volume/global` | VolumeSetRequest | VolumeSetResponse | contracted |
 | `PATCH` | `/api/volume/zone/{zone_id}` | ZoneVolumeRequest | ZoneVolumeDeltaResponse | contracted |
 | `PATCH` | `/api/volume/zone/{zone_id}/mute` | ClientMuteRequest | ZoneMuteSetResponse | internal |
-| `PATCH` | `/api/volume/client/mac/{mac_url}` | ClientVolumeRequest | ClientVolumeSetResponse | contracted |
-| `PATCH` | `/api/volume/client/mac/{mac_url}/mute` | ClientMuteRequest | ClientMuteSetResponse | contracted |
+| `PATCH` | `/api/volume/client/mac/{mac_id}` | ClientVolumeRequest | ClientVolumeSetResponse | contracted |
+| `PATCH` | `/api/volume/client/mac/{mac_id}/mute` | ClientMuteRequest | ClientMuteSetResponse | contracted |
 | `PATCH` | `/api/volume/volume-control` | VolumeControlRequest | VolumeControlResponse | internal |

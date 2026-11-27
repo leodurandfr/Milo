@@ -718,20 +718,16 @@ final class MiloAPIService: Sendable {
         MultiroomVolume(state: try await fetchVolumeStateData())
     }
 
-    /// The backend indexes clients by MAC WITH colons; the URL wants them WITHOUT.
-    private static func macURL(_ macId: String) -> String {
-        macId.replacingOccurrences(of: ":", with: "")
-    }
-
-    /// Sets a client's ABSOLUTE volume (dB). `PATCH /api/volume/client/mac/{mac}`.
+    /// Sets a client's ABSOLUTE volume (dB). `PATCH /api/volume/client/mac/{mac}`, the MAC
+    /// spelled with its colons, as the backend spells it on every route and in every answer.
     func setClientVolume(mac: String, volumeDb: Double) async throws {
-        try await sendCommand("/api/volume/client/mac/\(Self.macURL(mac))", method: "PATCH",
+        try await sendCommand("/api/volume/client/mac/\(mac)", method: "PATCH",
                               body: ["volume_db": volumeDb])
     }
 
     /// Toggles a client's mute. `PATCH /api/volume/client/mac/{mac}/mute`.
     func setClientMute(mac: String, muted: Bool) async throws {
-        try await sendCommand("/api/volume/client/mac/\(Self.macURL(mac))/mute", method: "PATCH",
+        try await sendCommand("/api/volume/client/mac/\(mac)/mute", method: "PATCH",
                               body: ["mute": muted])
     }
 

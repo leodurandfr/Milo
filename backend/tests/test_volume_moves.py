@@ -925,8 +925,8 @@ SAT_MAC = "dc:a6:32:00:00:0b"
 
 
 @pytest.mark.parametrize("path, body", [
-    ("/api/volume/client/mac/dca63200000b", {"volume_db": -40.0}),
-    ("/api/volume/client/mac/dca63200000b/mute", {"mute": True}),
+    ("/api/volume/client/mac/dc:a6:32:00:00:0b", {"volume_db": -40.0}),
+    ("/api/volume/client/mac/dc:a6:32:00:00:0b/mute", {"mute": True}),
     ("/api/volume/zone/z/mute", {"mute": True}),
 ], ids=["client volume", "client mute", "zone mute"])
 async def test_a_refusal_answered_through_a_route_is_one_error_line(caplog, path, body):
@@ -971,8 +971,8 @@ async def test_a_refusal_answered_through_a_route_is_one_error_line(caplog, path
 
 
 VOLUME_ROUTES = [
-    ("/api/volume/client/mac/dca63200000b", {"volume_db": -40.0}, "Volume"),
-    ("/api/volume/client/mac/dca63200000b/mute", {"mute": True}, "Mute"),
+    ("/api/volume/client/mac/dc:a6:32:00:00:0b", {"volume_db": -40.0}, "Volume"),
+    ("/api/volume/client/mac/dc:a6:32:00:00:0b/mute", {"mute": True}, "Mute"),
     ("/api/volume/zone/z/mute", {"mute": True}, "Mute"),
 ]
 
@@ -1081,7 +1081,7 @@ async def test_this_unit_that_does_not_answer_is_refused_not_unreached(caplog, m
     with caplog.at_level(logging.WARNING):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
-            response = await http.patch("/api/volume/client/mac/dca632000001", json={"volume_db": -40.0})
+            response = await http.patch("/api/volume/client/mac/dc:a6:32:00:00:01", json={"volume_db": -40.0})
 
     assert response.status_code == 502, response.text
     assert "could not be reached" not in response.json()["detail"]

@@ -892,13 +892,13 @@ describe('unifiedAudioStore', () => {
   });
 
   describe('client volume', () => {
-    it('addresses the client by colon-free MAC', async () => {
+    it('addresses the client by its MAC, colons kept as every route spells it', async () => {
       setMultiroom(true);
 
       await store.setClientVolume(REMOTE_MAC, -25);
 
       expect(apiCall.patch).toHaveBeenCalledWith(
-        '/api/volume/client/mac/dca6327ed343',
+        '/api/volume/client/mac/dc:a6:32:7e:d3:43',
         { volume_db: -25 },
         expect.anything(),
       );
@@ -954,7 +954,7 @@ describe('unifiedAudioStore', () => {
 
       expect(apiCall.patch).toHaveBeenCalledTimes(1);
       expect(apiCall.patch).toHaveBeenCalledWith(
-        '/api/volume/client/mac/dca6327ed343/mute',
+        '/api/volume/client/mac/dc:a6:32:7e:d3:43/mute',
         { mute: true },
         expect.anything(),
       );

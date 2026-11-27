@@ -3,8 +3,8 @@
 Unit tests for client volume API endpoints.
 
 Tests cover:
-- PATCH /api/volume/client/mac/{mac_url} - Set client volume by MAC
-- PATCH /api/volume/client/mac/{mac_url}/mute - Set client mute by MAC
+- PATCH /api/volume/client/mac/{mac_id} - Set client volume by MAC
+- PATCH /api/volume/client/mac/{mac_id}/mute - Set client mute by MAC
 - PATCH /api/volume/zone/{zone_id} - Apply zone volume delta
 - PATCH /api/volume/global - Set the global volume, absolute
 """
@@ -108,9 +108,9 @@ class TestMacAddressClientVolume:
         return TestClient(app)
 
     def test_set_volume_with_mac_address(self, test_client, mock_volume_service, mock_client_registry):
-        """Test setting volume using MAC address in URL (no colons)."""
+        """Test setting volume using the MAC address in the URL, with colons."""
         response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343",
+            "/api/volume/client/mac/dc:a6:32:7e:d3:43",
             json={"volume_db": -25.0}
         )
 
@@ -125,32 +125,29 @@ class TestMacAddressClientVolume:
         # Verify VolumeService was called with MAC (colon format)
         mock_volume_service.update_client_volume_db.assert_called_once_with("dc:a6:32:7e:d3:43", -25.0)
 
-    def test_set_volume_invalid_mac_format(self, test_client):
-        """Test invalid MAC address format (wrong length) returns 400."""
+    def test_a_mac_without_colons_is_not_another_spelling(self, test_client, mock_client_registry):
+        """Every route spells a client's MAC with colons, this one included:
+        the colon-free form it once took is now an unknown client, never a
+        second spelling converted on the way in. When this fails the route is
+        back to the one path where a MAC is written differently, which is how
+        an equalizer read once went out colon-free and answered 404."""
+        mock_client_registry.get_client.side_effect = (
+            lambda mac: {"id": mac, "online": True} if mac == "dc:a6:32:7e:d3:43" else None
+        )
+
         response = test_client.patch(
-            "/api/volume/client/mac/invalid",
+            "/api/volume/client/mac/dca6327ed343",
             json={"volume_db": -25.0}
         )
 
-        assert response.status_code == 400
-        assert "Invalid MAC address" in response.json()["detail"]
-
-    def test_set_volume_invalid_mac_non_hex(self, test_client):
-        """Test MAC address with non-hexadecimal characters returns 400."""
-        response = test_client.patch(
-            "/api/volume/client/mac/ghijklmnopqr",  # 12 chars but not hex
-            json={"volume_db": -25.0}
-        )
-
-        assert response.status_code == 400
-        assert "hexadecimal" in response.json()["detail"].lower()
+        assert response.status_code == 404
 
     def test_set_volume_mac_not_found(self, test_client, mock_client_registry):
         """Test MAC address not in registry returns 404."""
         mock_client_registry.get_client.return_value = None
 
         response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343",
+            "/api/volume/client/mac/dc:a6:32:7e:d3:43",
             json={"volume_db": -25.0}
         )
 
@@ -164,7 +161,7 @@ class TestMacAddressClientVolume:
         )
 
         response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343",
+            "/api/volume/client/mac/dc:a6:32:7e:d3:43",
             json={"volume_db": -70.0}
         )
 
@@ -180,7 +177,7 @@ class TestMacAddressClientVolume:
         that sent it (Milo-iOS 9a9ed25). A position on that scale is refused
         rather than kept as a second unit with no caller to exercise it."""
         response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343", json=body
+            "/api/volume/client/mac/dc:a6:32:7e:d3:43", json=body
         )
 
         assert response.status_code == 422
@@ -189,7 +186,7 @@ class TestMacAddressClientVolume:
     def test_mute_with_mac_address(self, test_client, mock_volume_service, mock_client_registry):
         """Test muting client using MAC address."""
         response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343/mute",
+            "/api/volume/client/mac/dc:a6:32:7e:d3:43/mute",
             json={"mute": True}
         )
 
@@ -204,7 +201,7 @@ class TestMacAddressClientVolume:
     def test_unmute_with_mac_address(self, test_client, mock_volume_service, mock_client_registry):
         """Test unmuting client using MAC address."""
         response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343/mute",
+            "/api/volume/client/mac/dc:a6:32:7e:d3:43/mute",
             json={"mute": False}
         )
 
@@ -221,7 +218,7 @@ class TestMacAddressClientVolume:
         mock_volume_service.update_client_volume_db.return_value = Delivery.REFUSED
 
         response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343",
+            "/api/volume/client/mac/dc:a6:32:7e:d3:43",
             json={"volume_db": -25.0}
         )
 
@@ -233,7 +230,7 @@ class TestMacAddressClientVolume:
         mock_volume_service.set_client_mute.return_value = Delivery.REFUSED
 
         response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343/mute",
+            "/api/volume/client/mac/dc:a6:32:7e:d3:43/mute",
             json={"mute": True}
         )
 

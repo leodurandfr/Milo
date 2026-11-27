@@ -160,6 +160,26 @@ def test_a_resource_has_one_spelling():
     assert not offenders, f"same resource under two spellings: {offenders}"
 
 
+def test_a_client_mac_in_a_path_has_one_name_and_one_spelling():
+    """A client's MAC is written with its colons on every route, as the
+    registry and every answer spell it, so its path parameter is `{mac_id}`
+    everywhere. `{mac_url}` was the volume routes' colon-free twin, converted
+    on the way in: the one place a MAC was written differently, and a caller
+    who learned it there sent it colon-free to the equalizer, which answered
+    404 for a speaker it knew."""
+    params = {
+        (method, path, segment[1:-1])
+        for method, path in ROUTES
+        for segment in path.split("/")
+        if segment.startswith("{") and "mac" in segment.lower()
+    }
+    assert len({p for p in params if p[2] == "mac_id"}) > 10, (
+        f"only {len(params)} MAC path parameters found — extractor broken?"
+    )
+    offenders = sorted(f"{m} {p}" for m, p, name in params if name != "mac_id")
+    assert not offenders, f"a MAC path parameter not named mac_id: {offenders}"
+
+
 # The method already says what the request does; repeating it in the path is
 # what splits one collection into two spellings. Only the synonyms of the verb
 # itself are listed: `POST /api/programs/{key}/update` triggers an update, which

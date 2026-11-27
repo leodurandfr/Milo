@@ -476,8 +476,8 @@ class MultiroomEqualizerService:
         # its EQ (eq_independent), in which case it is addressed directly.
         if client.zone_id is not None and not client.eq_independent:
             raise ValueError(
-                f"Client {mac_id} is in zone {client.zone_id}. "
-                "Use apply_zone_equalizer() instead."
+                f"Client {mac_id} is in zone {client.zone_id}: its equalizer is "
+                f"the zone's, addressed as target zone:{client.zone_id}"
             )
 
         result = await self.set_client_eq(mac_id, settings)

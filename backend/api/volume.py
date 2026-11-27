@@ -157,37 +157,6 @@ def create_volume_router(
     # MAC ADDRESS UTILITIES
     # ============================================================================
 
-    def _mac_from_url(mac_url: str) -> str:
-        """
-        Convert MAC from URL format (no colons) to internal format (with colons).
-
-        Example: dca6327ed343 -> dc:a6:32:7e:d3:43
-
-        Args:
-            mac_url: MAC address without colons (12 hex characters)
-
-        Returns:
-            MAC address with colons
-
-        Raises:
-            HTTPException: 400 if invalid format
-        """
-        if len(mac_url) != 12:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid MAC address format: {mac_url}. Expected 12 hex characters."
-            )
-        try:
-            # Validate it's actually hex
-            int(mac_url, 16)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid MAC address format: {mac_url}. Must be hexadecimal."
-            )
-        # Insert colons every 2 characters
-        return ':'.join(mac_url[i:i+2] for i in range(0, 12, 2))
-
     def _validate_mac_exists(mac_id: str) -> dict:
         """
         Validate MAC address exists in registry.
@@ -345,22 +314,20 @@ def create_volume_router(
     # MAC ADDRESS BASED CLIENT ENDPOINTS
     # ============================================================================
 
-    @router.patch("/client/mac/{mac_url}", response_model=ClientVolumeSetResponse, openapi_extra=CONTRACTED)
-    async def set_client_volume_by_mac(mac_url: str, request: ClientVolumeRequest):
+    @router.patch("/client/mac/{mac_id}", response_model=ClientVolumeSetResponse, openapi_extra=CONTRACTED)
+    async def set_client_volume_by_mac(mac_id: str, request: ClientVolumeRequest):
         """
         Set volume for a specific client using MAC address.
 
         Args:
-            mac_url: MAC address without colons (e.g., "dca6327ed343")
+            mac_id: the client's MAC, with colons (e.g., "dc:a6:32:7e:d3:43"),
+                as every other route spells it; an unknown one answers 404
             request: Volume in dB (-80 to 0)
 
         Returns:
-            Success status with MAC (with colons) and the new volume, on both
-            scales
+            Success status with the MAC and the new volume, on both scales
 
         Notes:
-            - MAC format in URL: no colons (dca6327ed343)
-            - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event `volume_changed` is broadcast after the update
             - `volume_db` is checked against the operator's limits and answers
               400 outside them.
@@ -382,7 +349,6 @@ def create_volume_router(
               client's next admission.
         """
         async with api_error_handler("Error setting client volume by MAC", logger):
-            mac_id = _mac_from_url(mac_url)
             client = _validate_mac_exists(mac_id)
             config = volume_service.volume_config
             volume_db = _validate_volume_limits(request.volume_db)
@@ -404,27 +370,24 @@ def create_volume_router(
                 "volume": config.normalize(volume_db)
             }
 
-    @router.patch("/client/mac/{mac_url}/mute", response_model=ClientMuteSetResponse, openapi_extra=CONTRACTED)
-    async def set_client_mute_by_mac(mac_url: str, request: ClientMuteRequest):
+    @router.patch("/client/mac/{mac_id}/mute", response_model=ClientMuteSetResponse, openapi_extra=CONTRACTED)
+    async def set_client_mute_by_mac(mac_id: str, request: ClientMuteRequest):
         """
         Set mute state for a specific client using MAC address.
 
         Args:
-            mac_url: MAC address without colons (e.g., "dca6327ed343")
+            mac_id: the client's MAC, with colons, as for the volume
             request: Mute state (true/false)
 
         Returns:
-            Success status with MAC (with colons) and new mute state
+            Success status with the MAC and new mute state
 
         Notes:
-            - MAC format in URL: no colons (dca6327ed343)
-            - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event is broadcast after the update
             - Same verdict as the volume route: an online client that refused
               answers 502, one nothing reached 503, an offline one keeps its 200.
         """
         async with api_error_handler("Error setting client mute by MAC", logger):
-            mac_id = _mac_from_url(mac_url)
             _validate_mac_exists(mac_id)
 
             failure = await volume_service.set_client_mute(mac_id, request.mute)

@@ -478,11 +478,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // state is owned here and the endpoints are /api/volume/*: nothing about it is
   // an equalizer. The registry answers "is this client local / online / zoned?".
 
-  /** "dc:a6:32:7e:d3:43" -> "dca6327ed343" — the API's colon-free path segment. */
-  function macToUrlFormat(macId) {
-    return macId.replace(/:/g, '');
-  }
-
   /** Remote clients only exist as an audio destination while multiroom is on. */
   function _reachable(clientId, what) {
     const registry = useMultiroomStore();
@@ -503,7 +498,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (!_reachable(clientId, 'volume')) return false;
 
     const result = await apiCall.patch(
-      `/api/volume/client/mac/${macToUrlFormat(clientId)}`,
+      `/api/volume/client/mac/${clientId}`,
       { volume_db: volumeDb },
       {
         category: 'store',
@@ -576,7 +571,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (!_reachable(clientId, 'mute')) return false;
 
     const result = await _withRequestedMute([['clients', clientId]], muted, () => apiCall.patch(
-      `/api/volume/client/mac/${macToUrlFormat(clientId)}/mute`,
+      `/api/volume/client/mac/${clientId}/mute`,
       { mute: muted },
       {
         category: 'store',
