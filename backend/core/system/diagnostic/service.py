@@ -479,11 +479,12 @@ async def _previous_boot(ctx) -> str:
     its evidence in the session that ended. The window everywhere else stops at
     the current boot on purpose, so without this that evidence is unreachable.
 
-    Two reads, because no single filter finds every error. Milō's Python
-    services write to stderr, which journald files at PRIORITY=6 whatever the
-    record's level — their level lives in the message text — so `-p err` finds
-    only the daemons that set a priority and systemd's own failures, and a match
-    on the message finds the rest.
+    Two reads, because no single filter finds every error. journald files a
+    unit's stderr at PRIORITY=6 whatever the line says, unless the line opens
+    with its syslog prefix — the backend's does (`core/log_handler.py`), the
+    Go daemons' never do — so `-p err` finds the
+    backend, the daemons that set a priority and systemd's own failures, and
+    a match on the message finds the rest.
     """
     units = await probes.list_milo_units(JOURNAL_UNIT_GLOB, JOURNAL_EXTRA_UNITS)
     by_priority, by_message = await asyncio.gather(

@@ -1,8 +1,9 @@
 """Custom logging handler that broadcasts backend errors to the frontend via
-WebSocket, and the format errors.log is written in."""
+WebSocket, the format errors.log is written in, and the one stderr is."""
 import asyncio
 import contextlib
 import logging
+import os
 import time
 from time import monotonic
 
@@ -26,6 +27,62 @@ def errors_log_formatter() -> logging.Formatter:
     formatter.default_time_format = "%Y-%m-%dT%H:%M:%S"
     formatter.default_msec_format = "%s.%03dZ"
     return formatter
+
+
+# A record's level as syslog numbers it, which journald reads off a `<N>` that
+# opens a line of a unit's stdout or stderr (`SyslogLevelPrefix=`, on by
+# default) and takes off the line.
+_SYSLOG_PRIORITY = (
+    (logging.CRITICAL, 2), (logging.ERROR, 3), (logging.WARNING, 4), (logging.INFO, 6),
+)
+
+
+def syslog_priority(levelno: int) -> int:
+    for floor, priority in _SYSLOG_PRIORITY:
+        if levelno >= floor:
+            return priority
+    return 7
+
+
+class JournalPriorityFormatter(logging.Formatter):
+    """Python's line, every line of it opened by the record's syslog priority.
+
+    journald files a stderr line at PRIORITY 6 whatever it says, so the
+    backend's warnings could be found only by reading the text of every line
+    (`journalctl -p warning` saw none of them). With the prefix, the PRIORITY
+    is the record's level, and the logs page asks journalctl for a level
+    rather than reading a week of lines to filter them itself. Every line, a
+    traceback's included: a line with no prefix is filed at 6, and a read at
+    warning would keep the record and drop its traceback. The prefix is taken
+    off, so MESSAGE is the line Python wrote (`WARNING:backend.x:…`).
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        prefix = f"<{syslog_priority(record.levelno)}>"
+        return "\n".join(prefix + line for line in super().format(record).split("\n"))
+
+
+def stderr_is_the_journal() -> bool:
+    """Whether stderr is the journal stream systemd connected, by the
+    `JOURNAL_STREAM` (`<device>:<inode>`) it sets: a run in a terminal, or with
+    stderr redirected, inherits nothing or another file, and prints no `<4>`."""
+    stream = os.environ.get("JOURNAL_STREAM", "")
+    device, _, inode = stream.partition(":")
+    try:
+        expected = (int(device), int(inode))
+        stat = os.fstat(2)
+    except (ValueError, OSError):
+        return False
+    return (stat.st_dev, stat.st_ino) == expected
+
+
+def stderr_formatter() -> logging.Formatter:
+    """stderr's line: Python's default (`WARNING:backend.x:message`, which
+    `core/system/logs/entries.py::classify` reads), carrying its priority
+    when stderr is the journal."""
+    if stderr_is_the_journal():
+        return JournalPriorityFormatter(logging.BASIC_FORMAT)
+    return logging.Formatter(logging.BASIC_FORMAT)
 
 
 class WebSocketLogHandler(logging.Handler):

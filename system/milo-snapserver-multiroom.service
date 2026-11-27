@@ -14,7 +14,11 @@ Type=simple
 # admission pins the volume, mute, latency and stream, and what it would keep
 # is only harm, a mute or a move made by another JSON-RPC client.
 RuntimeDirectory=milo-snapserver
-ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf --server.datadir=/run/milo-snapserver
+# The system sink (syslog), as snapclient's --logsink=system: each line carries
+# its level as the journal's PRIORITY, which `journalctl -p warning` reads (the
+# logs page, core/system/logs/journal.py). On stdout the level is only in the
+# text (`[Warning]`), filed at PRIORITY 6.
+ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf --server.datadir=/run/milo-snapserver --logging.sink=system
 User=milo
 Group=audio
 Restart=on-failure

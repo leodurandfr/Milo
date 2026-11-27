@@ -40,8 +40,9 @@ Two shapes of secret, both measured in this tree rather than imagined:
 
 The free-text sections (errors.log, the journal, each satellite's block) cannot
 be projected field by field. Their whitelist is the set of admitted UNITS —
-`milo-*` plus the two named below, never NetworkManager or wpa_supplicant — and
-structural rules on the text itself. Keeping those two units out does not keep
+`milo-*` plus the two named below, never NetworkManager or wpa_supplicant (the
+logs page reads those two, at warning only, with the Redactor told the unit:
+`LOGS_PAGE_SYSTEM_UNITS`) — and structural rules on the text itself. Keeping those two units out does not keep
 the SSID out: milo-backend and milo-client log the networks they save, join,
 forget and hand to a satellite themselves. So the networks NetworkManager holds
 are replaced by `wifi-N` like any other excluded value, and `strip_wifi_names`
@@ -416,10 +417,36 @@ JOURNAL_EXTRA_UNITS = (
     "bluetooth.service",
 )
 
+# Out of the report. NetworkManager and wpa_supplicant are read by the logs
+# page all the same, at warning and above only and through the Redactor told
+# which unit wrote the line (`LOGS_PAGE_SYSTEM_UNITS`, `WIFI_UNITS`): a report is
+# a file pasted whole into a public issue, a warning on the page one line.
 JOURNAL_EXCLUDED_UNITS = {
     "NetworkManager.service": "logs the SSID of every network it touches",
     "wpa_supplicant.service": "logs the SSID, and the association exchange with it",
     "ssh.service": "logs where people connected from and nothing about Milō",
+}
+
+# The two units that manage the WiFi: a line of theirs is about a network
+# whatever it says, so the Redactor, told the unit, takes every quoted value on
+# it as a network name and every address on it as an access point's
+# (`Redactor.__call__`), the shapes it is not known to write included.
+WIFI_UNITS = frozenset({"NetworkManager.service", "wpa_supplicant.service"})
+
+# The system services the logs page reads besides Milō's own units (and the
+# kernel, read on its own), at warning and above only — the context around an
+# event included —, each line through the Redactor like every other: what Milō
+# depends on and fails with it. Exactly these; avahi, dbus and the rest are not
+# read. systemd's own lines about a `milo-*` unit come with that unit's read.
+LOGS_PAGE_SYSTEM_UNITS = {
+    "NetworkManager.service": "the WiFi and the Ethernet link: a connection that drops, a profile it cannot read",
+    "wpa_supplicant.service": "the WiFi association itself: a driver error, a network it gave up on",
+    "bluetooth.service": "bluetoothd: an A2DP link refused or dropped, an adapter that failed",
+    "nginx.service": (
+        "the UI's web server: a start or a reload that failed (systemd's lines about it; "
+        "its request errors go to /var/log/nginx/error.log, which is not read)"
+    ),
+    "systemd-udevd.service": "devices as they appear: a sound card, a USB drive or a CD drive whose rules failed",
 }
 
 # The kernel ring is admitted on its own: undervoltage, ALSA xruns, CIFS
@@ -565,22 +592,62 @@ _WIFI_LABEL = re.compile(r"(?:milo-)?wifi-\d+")
 _APPLIANCE_NAME = re.compile(r"mil[oō](?:-client)?(?:-\d+)?", re.IGNORECASE)
 
 
+# Two shapes the WiFi daemons give a network, taken on any line whatever wrote
+# it: wpa_supplicant's `ssid="X"` (CTRL-EVENT-SSID-TEMP-DISABLED, -REENABLED,
+# printf-escaped) and NetworkManager's `connection 'X'` (a profile activated or
+# dropped, named after its SSID unless someone renamed it).
+_DAEMON_SHAPES = (
+    (re.compile(r'(\bssid=)"((?:[^"\\\n]|\\.)*)"', re.IGNORECASE), '"'),
+    (re.compile(r"(\bconnection )'([^'\n]*)'", re.IGNORECASE), "'"),
+)
+# A NetworkManager profile's file, named after its network: the keyfile
+# itself (`system-connections/Voisin Box.nmconnection`) or netplan's
+# (`netplan-NM-<uuid>-Maison%20Leo.nmconnection`, the SSID URI-escaped, which no
+# known-network pattern matches). Taken on any line, before the path exemption
+# below would keep it; netplan's `90-NM-<uuid>.yaml` names a uuid alone.
+_CONNECTION_FILE = re.compile(r"(system-connections/)([^/\"'\n]+?)(\.nmconnection)\b")
+# Double-quoted, as NetworkManager writes a network it joined (`Connected to
+# wireless network "X"`) and its audit lines a profile (`name="X"`): taken
+# only on a line of a WiFi unit, where every quoted value is taken.
+_DOUBLE_QUOTED = re.compile(r'(?<!\w)"((?:[^"\\\n]|\\.)*)"(?!\w)')
+
+
 def _kept(name: str) -> bool:
     return bool(_WIFI_LABEL.fullmatch(name) or _APPLIANCE_NAME.fullmatch(name))
 
 
-def strip_wifi_names(text: str, about_a_network: Optional[bool] = None) -> str:
+def strip_wifi_names(
+    text: str, about_a_network: Optional[bool] = None, *, every_quote: bool = False,
+) -> str:
     """Replace a network name written in one of Milō's own shapes by `<wifi>`.
 
     `about_a_network` is whether the line was about a network before any label
     was put in it: a `wifi-N` the Redactor wrote does not make every other
-    quoted value on its line a network name.
+    quoted value on its line a network name. `every_quote`: the line is a WiFi
+    daemon's (`WIFI_UNITS`), so a double-quoted value is taken too — all but an
+    absolute path, which is the script or the file a warning of theirs names.
     """
     if about_a_network is None:
         about_a_network = bool(_WIFI_LINE.search(text))
-    if about_a_network:
+
+    def kept(name: str) -> bool:
+        return _kept(name) or (every_quote and name.startswith("/"))
+
+    text = _CONNECTION_FILE.sub(
+        lambda m: m.group(0) if _kept(m.group(2)) else f"{m.group(1)}<wifi>{m.group(3)}", text,
+    )
+    for pattern, quote in _DAEMON_SHAPES:
+        text = pattern.sub(
+            lambda m: m.group(0) if kept(m.group(2)) else f"{m.group(1)}{quote}<wifi>{quote}",
+            text,
+        )
+    if about_a_network or every_quote:
         text = _QUOTED.sub(
-            lambda m: m.group(0) if _kept(m.group(1)) else "'<wifi>'", text
+            lambda m: m.group(0) if kept(m.group(1)) else "'<wifi>'", text
+        )
+    if every_quote:
+        text = _DOUBLE_QUOTED.sub(
+            lambda m: m.group(0) if kept(m.group(1)) else '"<wifi>"', text
         )
     for pattern in _UNQUOTED:
         text = pattern.sub(
@@ -705,7 +772,7 @@ _MAC = re.compile(
 _BT_LINE = re.compile(r"blue(?:tooth|z|alsa)|bt_remote|a2dp|avrcp|\bhci\d", re.IGNORECASE)
 # What the Redactor already wrote, which a shape must not label a second time.
 _LABEL = re.compile(
-    r"(?:bt|sender|account|title|artist|album|track|client|zone|share|usb|wifi)-\d+"
+    r"(?:bt|ap|sender|account|title|artist|album|track|client|zone|share|usb|wifi)-\d+"
     r"(?: \(local\))?|milo-wifi-\d+|bt-remote-filter|<wifi>|<global-ipv6>"
 )
 _NUMBERED_LABEL = re.compile(r"([a-z]+)-(\d+)")
@@ -882,26 +949,35 @@ class Redactor:
             cursor = end - base
         return "".join([*pieces, text[cursor:]])
 
-    def _mac(self, match: "re.Match[str]", about_bluetooth: bool) -> str:
+    def _mac(self, match: "re.Match[str]", about_bluetooth: bool, about_wifi: bool) -> str:
         address = (match.group("colon") or match.group("path")).replace("_", ":").upper()
         if address in self._keep_macs:
             return match.group(0)
-        if ("bt", address) not in self._found and not (about_bluetooth or match.group("path")):
-            return match.group(0)
-        return self._next_label("bt", address)
+        if ("bt", address) in self._found or about_bluetooth or match.group("path"):
+            return self._next_label("bt", address)
+        if about_wifi:
+            # An access point's address (a BSSID) is public, and a public
+            # database places it at the household's door.
+            return self._next_label("ap", address)
+        return match.group(0)
 
-    def __call__(self, text: str) -> str:
+    def __call__(self, text: str, *, unit: Optional[str] = None) -> str:
+        """`text` redacted; `unit`, the unit that wrote it when the reader
+        knows it and the text does not say it (the logs page reads a journal
+        line's message alone): a line of a WiFi unit is about a network, one
+        of a Bluetooth unit about Bluetooth, whatever it says."""
         # The mounted paths first: a USB drive's mountpoint is replaced whole
         # by its label below, which would leave the path after it unread.
         text = strip_global_ipv6(strip_query_strings(strip_mounted_paths(text)))
-        about_a_network = bool(_WIFI_LINE.search(text))
-        about_bluetooth = bool(_BT_LINE.search(text))
+        about_wifi = unit in WIFI_UNITS
+        about_a_network = about_wifi or bool(_WIFI_LINE.search(text))
+        about_bluetooth = bool(_BT_LINE.search(text) or (unit and _BT_LINE.search(unit)))
         if self._text is not None:
             text = self._text.sub(self._substitute, text)
         for shape in LISTENING_SHAPES:
             text = shape.sub(self._shape, text)
-        text = _MAC.sub(lambda match: self._mac(match, about_bluetooth), text)
-        return strip_wifi_names(text, about_a_network)
+        text = _MAC.sub(lambda match: self._mac(match, about_bluetooth, about_wifi), text)
+        return strip_wifi_names(text, about_a_network, every_quote=about_wifi)
 
     @classmethod
     def build(

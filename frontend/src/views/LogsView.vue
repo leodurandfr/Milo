@@ -5,11 +5,15 @@
 
   What it shows is read when it is opened, and again on a filter or on
   Refresh — never in the background (GET /api/system/logs): errors.log and its
-  rotations, the journal of the server's milo-* units and each online
+  rotations, the server's journal (its milo-* units, and at warning and above
+  the system services Milō depends on and the kernel, each listed under its
+  own name in the service filter, the kernel as "kernel") and each online
   speaker's own tails, grouped by the backend so a line repeated forty times
-  is one row with its count. Every line arrives redacted by the backend (the
-  diagnostic's Redactor): no network, share or speaker name, public address
-  or URL query reaches this page, which is why it can be shared.
+  is one row with its count; and at the top, the Pi's throttling state, read
+  with it — anything but 0 a warning, each limit named now or since boot.
+  Every line arrives redacted by the backend (the diagnostic's Redactor): no
+  network, share or speaker name, public address or URL query reaches this
+  page, which is why it can be shared.
 
   A row unfolds onto its context — the lines on each side of it, every
   service together (GET /api/system/logs/context) — and "Copy for correction"
@@ -26,6 +30,16 @@
       <IconButton icon="arrowClockwise" :loading="loading" :aria-label="t('logs.refresh')" @click="load" />
     </header>
 
+    <NoticeBox v-if="page?.throttling?.value" kind="warning">
+      <p class="logs__throttling-title">{{ t('logs.throttling.warning', { value: page.throttling.raw }) }}</p>
+      <ul class="logs__throttling">
+        <li v-for="condition in heldLimits" :key="condition.name">
+          {{ limitLabels[condition.name] }} — {{ condition.now ? t('logs.throttling.now') : t('logs.throttling.sinceBoot') }}
+        </li>
+      </ul>
+    </NoticeBox>
+    <p v-else-if="page?.throttling" class="logs__note text-body-small">{{ t('logs.throttling.clear') }}</p>
+
     <div class="logs__filters">
       <Dropdown v-model="level" :options="levelOptions" size="small" />
       <Dropdown v-model="service" :options="serviceOptions" size="small" />
@@ -39,12 +53,13 @@
     <NoticeBox v-if="page?.not_collected.length" kind="warning">
       <ul class="logs__missing text-mono-small">
         <li class="logs__missing-title">{{ t('system.diagnostic.notCollected') }}</li>
-        <li v-for="item in page.not_collected" :key="item.source">{{ item.source }} — {{ item.reason }}</li>
+        <li v-for="item in page.not_collected" :key="`${item.source}:${item.reason}`">{{ item.source }} — {{ item.reason }}</li>
       </ul>
     </NoticeBox>
 
     <p v-if="page?.truncated" class="logs__note text-body-small">
       {{ t('logs.truncated', { time: formatMoment(page.journal_from) }) }}
+      <template v-if="page.warnings_whole">{{ t('logs.truncatedWarningsWhole') }}</template>
     </p>
 
     <NoticeBox v-if="page && !page.groups.length" kind="empty">{{ t('logs.empty') }}</NoticeBox>
@@ -149,6 +164,17 @@ const levelLabels = computed(() => ({
   error: t('logs.levels.error'),
   critical: t('logs.levels.critical'),
 }));
+
+const limitLabels = computed(() => ({
+  under_voltage: t('logs.throttling.conditions.under_voltage'),
+  frequency_capped: t('logs.throttling.conditions.frequency_capped'),
+  throttled: t('logs.throttling.conditions.throttled'),
+  soft_temperature_limit: t('logs.throttling.conditions.soft_temperature_limit'),
+}));
+
+// The limits the firmware says held, now or at some moment since boot.
+const heldLimits = computed(() => (page.value?.throttling?.conditions ?? [])
+  .filter(condition => condition.now || condition.since_boot));
 
 const levelOptions = computed(() => [
   { value: '', label: t('logs.severity.all') },
@@ -298,6 +324,19 @@ onMounted(load);
 
 .logs__search {
   flex: 1 1 240px;
+}
+
+.logs__throttling-title {
+  margin: 0;
+}
+
+.logs__throttling {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+  margin: var(--space-02) 0 0;
+  padding: 0;
+  list-style: none;
 }
 
 .logs__missing {

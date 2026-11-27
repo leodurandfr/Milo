@@ -154,6 +154,8 @@ OS_UNITS = {
     "avahi-daemon.service": "the avahi package; system/ ships only its override",
     "NetworkManager.service": "the network-manager package",
     "wpa_supplicant.service": "the wpasupplicant package",
+    "nginx.service": "the nginx package; rootfs/ ships only its site",
+    "systemd-udevd.service": "systemd itself (the udev package)",
 }
 
 

@@ -1054,7 +1054,8 @@
     "refresh": "Relire les journaux",
     "search": "Rechercher dans les journaux",
     "readFailed": "Les journaux n'ont pas pu être lus.",
-    "truncated": "Les lignes du journal antérieures à {time} ne sont pas incluses : la période en contient plus qu'une lecture n'en renvoie.",
+    "truncated": "Les lignes du journal antérieures à {time} sont incomplètes : la période en contient plus qu'une lecture n'en renvoie.",
+    "truncatedWarningsWhole": "Les avertissements et les erreurs sont lus sur toute la période.",
     "empty": "Aucune ligne ne correspond à ces filtres.",
     "count": "×{count}",
     "firstSeen": "Vu pour la première fois {time}",
@@ -1075,6 +1076,18 @@
       "warning": "Avertissement",
       "error": "Erreur",
       "critical": "Critique"
+    },
+    "throttling": {
+      "clear": "Alimentation et température : aucune sous-tension, limitation de fréquence ni bridage depuis le dernier démarrage.",
+      "warning": "Le Raspberry Pi a signalé une limite d'alimentation ou de température depuis le dernier démarrage ({value}).",
+      "now": "en ce moment",
+      "sinceBoot": "depuis le démarrage, plus maintenant",
+      "conditions": {
+        "under_voltage": "Sous-tension",
+        "frequency_capped": "Fréquence limitée",
+        "throttled": "Bridage",
+        "soft_temperature_limit": "Limite thermique douce"
+      }
     }
   },
   "timezone": {

@@ -420,12 +420,16 @@ def create_system_router(
         """The logs of the window `since` back from now, grouped and redacted.
 
         Read when asked, nothing in the background: errors.log and its
-        rotations, the journal of the `milo-*` units, each online speaker's
-        own tails. Repeated lines come as one group (count, first and last
-        occurrence); `level` is a minimum severity, `service` one service,
-        `q` a text matched against the redacted line. Every line is redacted
-        as the diagnostic report's are; a place that could not be read is
-        listed in `not_collected` with its reason.
+        rotations, the journal of the `milo-*` units and, at warning and
+        above only, of the system services Milō depends on and the kernel,
+        each online speaker's own tails, and the Pi's throttling state
+        (`throttling`, null when it could not be read). Repeated lines come
+        as one group (count, first and last occurrence); `level` is a minimum
+        severity — at warning or above asked of journalctl before its cap,
+        so a week fits —, `service` one service, `q` a text matched against
+        the redacted line. Every line is redacted as the diagnostic report's
+        are; a place that could not be read is listed in `not_collected`
+        with its reason.
         """
         async with api_error_handler("Failed to read the logs", logger):
             if log_service is None:

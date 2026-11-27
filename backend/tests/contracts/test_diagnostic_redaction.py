@@ -1545,3 +1545,91 @@ async def test_the_allowed_values_do_survive_a_real_report(planted):
     ):
         assert line in result["report"], line
 
+
+
+# --------------------------------------------------------------------------- #
+# The logs page's system services: the WiFi and Bluetooth daemons' own lines
+# --------------------------------------------------------------------------- #
+
+def test_the_wifi_daemons_are_read_by_the_page_only_and_never_by_the_report():
+    """The report pastes whole journals into a public issue and keeps both
+    WiFi daemons out; the page reads them, at warning only, through the
+    Redactor told the unit. A WiFi unit admitted to the report, or one the
+    page reads without the hint, carries the SSIDs both exist to remove."""
+    assert wl.WIFI_UNITS <= set(wl.JOURNAL_EXCLUDED_UNITS)
+    assert wl.WIFI_UNITS <= set(wl.LOGS_PAGE_SYSTEM_UNITS)
+    for unit, reason in wl.LOGS_PAGE_SYSTEM_UNITS.items():
+        assert len(reason) > 20, f"{unit} is read without a usable reason"
+
+
+@pytest.mark.parametrize("line, kept", [
+    # wpa_supplicant, printf-escaped, on any line whatever wrote it.
+    ('wlan0: CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid="Sentinel \\"Net\\"" auth_failures=1',
+     'ssid="<wifi>" auth_failures=1'),
+    ("wlan0: CTRL-EVENT-SSID-REENABLED id=0 ssid=\"Sentinel Net\"", 'ssid="<wifi>"'),
+    ("wlan0: Trying to associate with SSID 'Sentinel Net'", "SSID '<wifi>'"),
+    # NetworkManager names a profile after its SSID.
+    ("device (wlan0): Activation: starting connection 'Sentinel Net' (4c1e…)",
+     "starting connection '<wifi>' (4c1e…)"),
+])
+def test_a_network_a_wifi_daemon_names_is_redacted_without_knowing_it(line, kept):
+    """A network the unit never saved — a neighbor's, one forgotten since — is
+    in no list the Redactor is built from: only its shape takes it out."""
+    out = wl.Redactor()(line)
+    assert "Sentinel" not in out and kept in out, out
+
+
+def test_a_wifi_units_line_is_about_a_network_whatever_it_says():
+    """NetworkManager and wpa_supplicant write shapes nobody listed: on their
+    lines every quoted value is taken as a network, all but a path, and an
+    access point's address (which a public database locates) is labeled."""
+    redactor = wl.Redactor()
+    joined = redactor(
+        'device (wlan0): Activation: (wifi) Stage 2 of 5 successful. Connected to wireless network "Sentinel"',
+        unit="NetworkManager.service",
+    )
+    assert joined.endswith('Connected to wireless network "<wifi>"'), joined
+    script = redactor(
+        "dispatcher: (17) Script '/etc/NetworkManager/dispatcher.d/01-ifupdown' exited with status 1.",
+        unit="NetworkManager.service",
+    )
+    assert "'/etc/NetworkManager/dispatcher.d/01-ifupdown'" in script
+    lost = redactor("wlan0: CTRL-EVENT-BEACON-LOSS bssid=7c:4c:a5:1e:22:10", unit="wpa_supplicant.service")
+    again = redactor("wlan0: Associated with 7C:4C:A5:1E:22:10", unit="wpa_supplicant.service")
+    assert lost.endswith("bssid=ap-1") and again.endswith("with ap-1"), (lost, again)
+    # The same address on a line of a unit that is not a WiFi daemon is a
+    # multiroom client's, which the logs keep.
+    assert "7c:4c:a5:1e:22:10" in redactor("client 7c:4c:a5:1e:22:10 joined", unit="milo-backend.service")
+
+
+def test_a_bluetooth_units_line_is_about_bluetooth_whatever_it_says():
+    """bluetoothd names a phone by its address on lines that say neither
+    Bluetooth nor A2DP: the unit says it, and the address is the phone's."""
+    line = "profiles/audio/avdtp.c:avdtp_connect_cb() connect to 4C:2E:5E:11:22:33: Connection refused (111)"
+    out = wl.Redactor()(line, unit="bluetooth.service")
+    assert "4C:2E:5E:11:22:33" not in out and "connect to bt-1:" in out, out
+
+
+@pytest.mark.parametrize("line", [
+    # netplan's keyfile: the SSID URI-escaped, which no known-network
+    # pattern matches.
+    '<warn>  [1764230400.1234] keyfile: load: "/run/NetworkManager/system-connections/'
+    'netplan-NM-3e5b1c2a-Maison%20Leo.nmconnection": failed to load connection: invalid connection',
+    # A keyfile of the wrong mode, named after a network the unit never saved.
+    '<warn>  [1764230400.1234] keyfile: load: "/etc/NetworkManager/system-connections/'
+    'Voisin Box.nmconnection": failed to load connection: File permissions (644) are insecure',
+])
+@pytest.mark.parametrize("unit", ["NetworkManager.service", None])
+def test_a_profiles_file_name_is_a_network_name(line, unit):
+    """A NetworkManager profile's file is named after its network, and a
+    WiFi daemon's line keeps an absolute path whole: the file's name is taken
+    out first, on any line, by a Redactor that knows the network under another
+    spelling or not at all."""
+    redactor = wl.Redactor.build(
+        client_labels={}, client_names={}, zone_labels={}, zone_names={},
+        share_labels={}, share_names={}, usb_strings={}, ssid_labels={"Maison Leo": "wifi-1"},
+    )
+    out = redactor(line, unit=unit)
+    for name in ("Maison", "Voisin", "Leo"):
+        assert name not in out, out
+    assert "system-connections/" in out and "<wifi>.nmconnection" in out, out

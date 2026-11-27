@@ -37,6 +37,22 @@ class NotCollected(BaseModel):
     reason: str
 
 
+class ThrottleCondition(BaseModel):
+    """One limit the Pi's firmware reports: whether it holds now, and
+    whether it held at any moment since boot."""
+    name: Literal["under_voltage", "frequency_capped", "throttled", "soft_temperature_limit"]
+    now: bool
+    since_boot: bool
+
+
+class Throttling(BaseModel):
+    """`vcgencmd get_throttled`, read with the page. Anything but 0 is a
+    warning, a bit not named in `conditions` included."""
+    value: int
+    raw: str
+    conditions: List[ThrottleCondition]
+
+
 class LogsPage(BaseModel):
     since: datetime
     until: datetime
@@ -46,10 +62,17 @@ class LogsPage(BaseModel):
     # Every service a line was read from in the window, for the filter.
     services: List[str]
     lines_read: int
-    # The journal read stopped at its cap: its lines older than
-    # `journal_from` are not in (errors.log's still are).
+    # A journal read stopped at its cap: from `journal_from` on, the window
+    # is whole; before it, that read's lines are not in (the other reads',
+    # errors.log's, the speakers' still are).
     truncated: bool
     journal_from: Optional[datetime] = None
+    # Every line at warning and above is in all the same: only the read of
+    # every level of `milo-*` was cut, beside the reads at warning that were
+    # not (`journal.page_reads`).
+    warnings_whole: bool = False
+    # Null when it could not be read, which `not_collected` says.
+    throttling: Optional[Throttling] = None
     not_collected: List[NotCollected]
 
 

@@ -54,7 +54,12 @@ from backend.shared.background import BackgroundTaskSet
 # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: WARNING)
 _log_level_name = os.environ.get('MILO_LOG_LEVEL', 'WARNING').upper()
 _log_level = getattr(logging, _log_level_name, logging.WARNING)
-logging.basicConfig(level=_log_level)
+# Python's default line on stderr, which journald keeps, opened by its syslog
+# priority when stderr is the journal (`stderr_formatter`).
+from backend.core.log_handler import stderr_formatter
+_stderr_handler = logging.StreamHandler()
+_stderr_handler.setFormatter(stderr_formatter())
+logging.basicConfig(level=_log_level, handlers=[_stderr_handler])
 logger = logging.getLogger(__name__)
 
 # Persist errors/warnings to rotating log file. Fail open if the data dir is

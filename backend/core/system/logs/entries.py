@@ -6,17 +6,21 @@ Three places hold the appliance's lines, each in its own shape:
   * errors.log and its rotations — `[2026-11-27T09:00:00.123Z] WARNING
     backend.x - message`, UTC, a record's traceback on the lines after it
     (`core/log_handler.py::errors_log_formatter`, `backend/main.py`);
-  * the journal of the server's `milo-*` units, read as JSON so each line keeps
-    its unit and its microsecond;
+  * the server's journal, read as JSON so each line keeps its unit and its
+    microsecond: the `milo-*` units, the system services Milō depends on, and
+    the kernel's lines, filed under `kernel` (`parse_kernel`);
   * a satellite's own journal tails, inside the diagnostic block it answers
     (`milo-client/app/routes/diagnostic.py`), `short-iso` under one
     `--- <unit> ---` heading per unit.
 
-The level is read from the line where the line says it. Milō's Python services
-reach journald through stderr, which files every line at PRIORITY=6 whatever
-the record's level, so the level lives in the text (`WARNING:backend.x:`); a
-Go daemon writes logrus' `level=…`, snapcast `[Warning]`. Only a line that
-names none is taken at its journal priority.
+The level is read from the line where the line says it: Python's
+`WARNING:backend.x:`, a Go daemon's logrus `level=…`, snapcast's `[Warning]`
+on a stdout sink. Only a line that names none is taken at its journal
+priority — which is where the backend's level is too since its stderr
+carries the syslog prefix (`core/log_handler.py`), and where Navidrome's and
+go-librespot's never is: journald files their stderr at PRIORITY 6, so the
+logs page finds their warnings by their text (`logrus_grep`). A kernel line
+names none of these, and is taken at its priority alone.
 """
 import json
 import re
@@ -53,7 +57,8 @@ class LogLine:
 
 # Python's default `logging` format, as basicConfig writes it to stderr.
 _PYTHON = re.compile(r"^(?P<level>DEBUG|INFO|WARNING|ERROR|CRITICAL):(?P<logger>[^:\s]+):(?P<message>.*)$", re.S)
-_LOGRUS = re.compile(r"\blevel=(?P<level>trace|debug|info|warning|warn|error|fatal|panic)\b")
+_LOGRUS_LEVELS = ("trace", "debug", "info", "warning", "warn", "error", "fatal", "panic")
+_LOGRUS = re.compile(rf"\blevel=(?P<level>{'|'.join(_LOGRUS_LEVELS)})\b")
 _SNAPCAST = re.compile(r"\[(?P<level>Trace|Debug|Info|Notice|Warning|Error|Fatal)\]")
 _NAMED = {
     "trace": "debug", "debug": "debug", "info": "info", "notice": "info",
@@ -63,6 +68,14 @@ _NAMED = {
 # syslog priorities, for a line that names no level.
 _PRIORITY = {0: "critical", 1: "critical", 2: "critical", 3: "error", 4: "warning",
              5: "info", 6: "info", 7: "debug"}
+
+
+def logrus_grep(floor: str) -> str:
+    """journalctl's `-g` for a logrus line at `floor` or above: the names
+    `_LOGRUS` reads, those of that rank. Lowercase, so journalctl matches it
+    in any case, as `_LOGRUS` does not need to: logrus writes it lowercase."""
+    names = [name for name in _LOGRUS_LEVELS if LEVEL_RANK[_NAMED[name]] >= LEVEL_RANK[floor]]
+    return rf"\blevel=({'|'.join(names)})\b"
 
 
 def _named_level(message: str) -> Optional[str]:
@@ -182,6 +195,37 @@ def parse_journal(entries: Iterable[Dict[str, Any]]) -> List[LogLine]:
     return lines
 
 
+# The service the kernel's lines are filed under, on the server as on a
+# speaker (`<label>/kernel`, the satellite's heading for its kernel tail).
+KERNEL_SERVICE = "kernel"
+
+
+def parse_kernel(entries: Iterable[Dict[str, Any]]) -> List[LogLine]:
+    """The kernel's journal entries (`_TRANSPORT=kernel`) as lines, filed under
+    `kernel`, each at its priority: a kernel message names no level of its
+    own. What wrote it, when that is not the kernel itself (a generator, or
+    journald, writing to /dev/kmsg before the journal is up), is its logger.
+    Never glued: two kernel lines in the same second are two records."""
+    lines: List[LogLine] = []
+    for entry in entries:
+        if "__REALTIME_TIMESTAMP" not in entry:
+            continue
+        message = message_text(entry.get("MESSAGE")).rstrip()
+        if not message:
+            continue
+        try:
+            priority = int(entry.get("PRIORITY", 6))
+        except (TypeError, ValueError):
+            priority = 6
+        identifier = entry.get("SYSLOG_IDENTIFIER")
+        lines.append(LogLine(
+            at=journal_time(entry), level=_PRIORITY.get(priority, "info"),
+            service=KERNEL_SERVICE, message=message,
+            logger=identifier if identifier and identifier != "kernel" else None,
+        ))
+    return lines
+
+
 def decode_json_lines(raw: Iterable[bytes]) -> List[Dict[str, Any]]:
     entries = []
     for line in raw:
@@ -204,10 +248,19 @@ _SHORT_ISO = re.compile(
 )
 
 
+# A speaker's kernel line, its syslog priority before its text.
+_KERNEL_PRIORITY = re.compile(r"^<(?P<priority>[0-7])>(?P<message>.*)$", re.S)
+
+
 def parse_satellite_block(label: str, text: str) -> List[LogLine]:
     """The journal lines of one satellite's block, each filed under
     `<label>/<unit>` — the label the report gives that speaker, never the
-    room name its owner typed."""
+    room name its owner typed.
+
+    Its kernel tail holds warnings and above only, each message opened by its
+    syslog priority (`<2>hwmon hwmon1: …`, `milo-client/app/routes/diagnostic.py`),
+    since short-iso carries none and the kernel's text never says a level:
+    a kernel line is taken at that priority, which the message loses."""
     lines: List[LogLine] = []
     if JOURNAL_HEADING not in text.splitlines():
         return lines
@@ -226,7 +279,14 @@ def parse_satellite_block(label: str, text: str) -> List[LogLine]:
             if lines:
                 lines[-1].message += "\n" + raw.strip()
             continue
-        level, logger, message = classify(entry.group("message"))
+        prefixed = _KERNEL_PRIORITY.match(entry.group("message")) if unit == KERNEL_SERVICE else None
+        if prefixed:
+            ident = entry.group("ident")
+            level = _PRIORITY[int(prefixed.group("priority"))]
+            logger = ident if ident != "kernel" else None
+            message = prefixed.group("message")
+        else:
+            level, logger, message = classify(entry.group("message"))
         lines.append(LogLine(
             at=datetime.fromisoformat(entry.group("at")).astimezone(timezone.utc),
             level=level, service=f"{label}/{unit}", message=message, logger=logger,

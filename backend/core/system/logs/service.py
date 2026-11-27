@@ -2,11 +2,13 @@
 """The appliance's logs, read when the logs page asks and never otherwise.
 
 Nothing here runs in the background and nothing is kept between two reads:
-each answer reads errors.log and its rotations, the journal of the server's
-`milo-*` units and each online speaker's own journal tails, then groups what
-it read (`grouping.py`). A place that could not be read is a `not_collected`
-entry with its reason — never a silence, which would read as "nothing
-happened there".
+each answer reads errors.log and its rotations, the server's journal — its
+`milo-*` units, and at warning and above the system services Milō depends on
+and the kernel (`journal.page_reads`) — and each online speaker's own journal
+tails, then groups what it read (`grouping.py`); and the Pi's throttling state,
+asked of the firmware (`throttling.py`). A place that could not be read is a
+`not_collected` entry with its reason — never a silence, which would read as
+"nothing happened there".
 
 **Every line that leaves passes through the diagnostic's Redactor** (built by
 `DiagnosticService.build_redactor`, from the same reads a report makes: the
@@ -15,14 +17,18 @@ names, the Bluetooth devices, what is playing), then through
 `strip_public_ipv4`. The API is not authenticated and the page is meant to
 stay publishable, so a line is redacted before it is filtered, grouped or
 cut: a text search for a network name finds nothing, rather than telling who
-asks that the network exists.
+asks that the network exists. The Redactor is told the service of each line,
+because a journal message does not name its unit: a line of NetworkManager or
+wpa_supplicant is about a network, one of bluetoothd about Bluetooth, whatever
+its text says.
 
 Two lines in two places are often one record: the backend writes WARNING and
 above both to errors.log and to its stderr, which journald keeps. The journal's
 copy is kept (it carries the unit and the microsecond); errors.log's copy is
 dropped when the journal holds the same logger and first line within
 `_SAME_RECORD_S`. errors.log's own lines matter where the journal no longer
-reaches — journald keeps about two days on a unit, the rotations far more.
+reaches — the rotations reach further than journald's 54 MB, and they hold
+the backend's warnings from before its stderr carried their priority.
 
 **What costs CPU runs off the event loop** — parsing up to 8 MB of errors.log,
 5000 journal entries, the Redactor's passes over every line, the grouping —
@@ -44,7 +50,7 @@ import aiohttp
 
 from backend.config.constants import ERROR_LOG_FILE
 from backend.core.system.diagnostic.whitelist import strip_public_ipv4
-from backend.core.system.logs import grouping, journal
+from backend.core.system.logs import grouping, journal, throttling
 from backend.core.system.logs.entries import (
     ERRORS_LOG_SERVICE,
     LEVEL_RANK,
@@ -53,6 +59,7 @@ from backend.core.system.logs.entries import (
     message_text,
     parse_errors_log,
     parse_journal,
+    parse_kernel,
     parse_satellite_block,
 )
 from backend.core.system.logs.models import (
@@ -133,8 +140,10 @@ def _drop_journaled(errors_log: Sequence[LogLine], journaled: Sequence[LogLine])
 class LogService:
     """Reads, groups and redacts. Holds no state and spawns no task."""
 
-    # The journal read's cap, newest kept: two days of a quiet unit, a few
-    # hours of a noisy one. A window it cuts is said so (`truncated`).
+    # Each journal read's cap, newest kept: two days of a quiet unit's
+    # `milo-*` lines at every level, a few hours of a noisy one; seven days
+    # and more at warning and above, which journalctl filters before it. A
+    # window a read cuts is said so (`truncated`).
     JOURNAL_MAX_ENTRIES = 5000
     # Lines of context on each side of an event, every service together.
     CONTEXT_LINES = 20
@@ -168,21 +177,37 @@ class LogService:
     ) -> LogsPage:
         """The groups of the window `since` back from now that pass the
         filters: `level` a minimum severity, `service` one service exactly,
-        `q` a case-insensitive text matched against the redacted line."""
+        `q` a case-insensitive text matched against the redacted line; and
+        the Pi's throttling state as it is now."""
         until = datetime.now(timezone.utc)
         start = until - since
-        sanitize, (entries, others, not_collected, truncated) = await asyncio.gather(
+        reads = journal.page_reads(since=start, until=until, level=level, cap=self.JOURNAL_MAX_ENTRIES)
+        sanitize, results, (others, not_collected), throttled = await asyncio.gather(
             self._sanitizer(),
-            self._collect(
-                journal.journal_args(since=start, until=until, newest=self.JOURNAL_MAX_ENTRIES),
-                self.JOURNAL_MAX_ENTRIES,
-                errors_log_since=start,
-            ),
+            asyncio.gather(*(
+                journal.read(r.args, max_entries=self.JOURNAL_MAX_ENTRIES) for r in reads
+            )),
+            self._collect_others(errors_log_since=start),
+            throttling.read(),
         )
+        not_collected += self._journal_failures(reads, results)
+        if isinstance(throttled, str):
+            not_collected.append(NotCollected(source="throttling", reason=throttled))
+            throttled = None
+        # Where a read stopped at its cap, its lines older than its oldest are
+        # not in; the window is whole from the latest such moment on.
+        cut_at = [
+            min(journal_time(e) for e in entries if "__REALTIME_TIMESTAMP" in e)
+            for (entries, _, stopped) in results
+            if stopped and any("__REALTIME_TIMESTAMP" in e for e in entries)
+        ]
+        cut = [read for read, (_, _, stopped) in zip(reads, results) if stopped]
+        truncated = bool(cut)
+        # Only the read of every level was cut: the warnings are whole.
+        warnings_whole = all(read.all_levels for read in cut)
 
         def answer() -> LogsPage:
-            journaled = parse_journal(entries)
-            journal_from = min((line.at for line in journaled), default=None) if truncated else None
+            journaled = self._parse(reads, [entries for (entries, _, _) in results])
             lines = self._redacted(
                 [
                     line for line in (*journaled, *_drop_journaled(others, journaled))
@@ -209,7 +234,9 @@ class LogService:
                 services=sorted({line.service for line in lines}),
                 lines_read=len(lines),
                 truncated=truncated,
-                journal_from=journal_from,
+                journal_from=max(cut_at) if cut_at else None,
+                warnings_whole=warnings_whole,
+                throttling=throttled,
                 not_collected=self._redacted_reasons(not_collected, sanitize),
             )
 
@@ -217,43 +244,50 @@ class LogService:
 
     async def context(self, *, at: datetime, service: Optional[str] = None) -> LogContext:
         """The `CONTEXT_LINES` lines on each side of the event at `at` (of
-        `service`, when given), every service together; the event's own text,
-        when a line is exactly at `at`, redacted with them; the release the
-        unit runs; and the audio source at that moment (`_source_state_at`)."""
+        `service`, when given), every service together — `milo-*` at every
+        level, the system services and the kernel at warning and above, as on
+        the page; the event's own text, when a line is exactly at `at`,
+        redacted with them; the release the unit runs; and the audio source at
+        that moment (`_source_state_at`)."""
         at = at.astimezone(timezone.utc)
         n = self.CONTEXT_LINES + 1
+        reads = journal.context_reads(at=at, n=n)
         (
             sanitize,
-            (before, before_reason, before_full),
-            (after, after_reason, after_full),
+            results,
             (others, not_collected),
             build,
             source_state,
         ) = await asyncio.gather(
             self._sanitizer(),
-            journal.read(journal.journal_args(until=at, newest=n), max_entries=n),
-            journal.read(journal.journal_args(since=at), max_entries=n),
+            asyncio.gather(*(journal.read(r.args, max_entries=n) for r, _ in reads)),
             self._collect_others(),
             self._running_build(),
             self._source_state_at(at),
         )
-        for reason in {before_reason, after_reason} - {None}:
-            not_collected.append(NotCollected(source="journal", reason=reason))
+        not_collected += self._journal_failures([r for r, _ in reads], results)
 
         def answer() -> LogContext:
-            journaled = _one_per_record(parse_journal(before) + parse_journal(after))
-            # Where the journal read was cut, a line from elsewhere past the
-            # cut would sit next to journal lines it never had between them.
-            low = journaled[0].at if before_full and journaled else None
-            high = journaled[-1].at if after_full and journaled else None
+            journaled = _one_per_record(self._parse(
+                [r for r, _ in reads], [entries for (entries, _, _) in results],
+            ))
+            # Where a journal read was cut, a line from elsewhere past the cut
+            # would sit next to lines that read never had between them: the
+            # window keeps what every cut read covers.
+            low = high = None
+            for (read, before), (entries, _, full) in zip(reads, results):
+                times = [journal_time(e) for e in entries if "__REALTIME_TIMESTAMP" in e]
+                if not (full and times):
+                    continue
+                if before:
+                    low = max(low, min(times)) if low else min(times)
+                else:
+                    high = min(high, max(times)) if high else max(times)
             merged = sorted(
-                [
-                    *journaled,
-                    *(
-                        line for line in _drop_journaled(others, journaled)
-                        if (low is None or line.at >= low) and (high is None or line.at <= high)
-                    ),
-                ],
+                (
+                    line for line in (*journaled, *_drop_journaled(others, journaled))
+                    if (low is None or line.at >= low) and (high is None or line.at <= high)
+                ),
                 key=lambda line: line.at,
             )
 
@@ -288,21 +322,43 @@ class LogService:
         async with self._cpu:
             return await asyncio.to_thread(work)
 
-    async def _sanitizer(self) -> Callable[[str], str]:
-        """The Redactor of this answer, then the public IPv4 rule.
+    async def _sanitizer(self) -> Callable[..., str]:
+        """The Redactor of this answer, then the public IPv4 rule: a text and,
+        for a line, the service it is filed under.
 
         Never a fallback: a Redactor that could not be built fails the read,
         because a line sent without it would carry what it exists to remove.
         """
         redactor = await self._diagnostic.build_redactor()
-        return lambda text: strip_public_ipv4(redactor(text))
+        return lambda text, unit=None: strip_public_ipv4(redactor(text, unit=unit))
 
-    def _redacted(self, lines: Sequence[LogLine], sanitize: Callable[[str], str]) -> List[LogLine]:
+    @staticmethod
+    def _parse(reads: Sequence[journal.JournalRead], entries: Sequence[Sequence[Dict[str, Any]]]) -> List[LogLine]:
+        """The lines of several reads, each entry once (the reads are
+        disjoint by construction; the cursor makes sure of it), oldest first."""
+        milo = journal.one_per_entry([e for r, got in zip(reads, entries) if not r.kernel for e in got])
+        kernel = journal.one_per_entry([e for r, got in zip(reads, entries) if r.kernel for e in got])
+        return sorted([*parse_journal(milo), *parse_kernel(kernel)], key=lambda line: line.at)
+
+    @staticmethod
+    def _journal_failures(reads: Sequence[journal.JournalRead], results) -> List[NotCollected]:
+        """One entry per read that failed, under that read's name, each
+        (name, reason) said once: a failed kernel read is not "the journal".
+        Every read failing the same way (no journalctl) is the journal's."""
+        reasons = [reason for (_, reason, _) in results]
+        if reasons and None not in reasons and len(set(reasons)) == 1:
+            return [NotCollected(source="journal", reason=reasons[0])]
+        failures = dict.fromkeys(
+            (read.name, reason) for read, reason in zip(reads, reasons) if reason is not None
+        )
+        return [NotCollected(source=name, reason=reason) for name, reason in failures]
+
+    def _redacted(self, lines: Sequence[LogLine], sanitize: Callable[..., str]) -> List[LogLine]:
         """Each line redacted, oldest first: the Redactor labels a value
         found by its shape in the order it meets it."""
         out = []
         for line in sorted(lines, key=lambda line: line.at):
-            message = sanitize(line.message)
+            message = sanitize(line.message, line.service)
             if len(message) > self.MAX_MESSAGE_CHARS:
                 message = message[:self.MAX_MESSAGE_CHARS - 1] + "…"
             out.append(replace(line, message=message, pid=None))
@@ -335,19 +391,6 @@ class LogService:
             i for i, line in enumerate(lines) if service is None or line.service == service
         ] or list(range(len(lines)))
         return min(candidates, key=lambda i: abs((lines[i].at - at).total_seconds())), False
-
-    async def _collect(
-        self, journal_argv: List[str], max_entries: int, *, errors_log_since: datetime,
-    ) -> Tuple[List[Dict[str, Any]], List[LogLine], List[NotCollected], bool]:
-        """The journal's entries as read, the other places' lines, what could
-        not be read, and whether the journal read was cut at its cap."""
-        (entries, reason, truncated), (others, not_collected) = await asyncio.gather(
-            journal.read(journal_argv, max_entries=max_entries),
-            self._collect_others(errors_log_since=errors_log_since),
-        )
-        if reason is not None:
-            not_collected.append(NotCollected(source="journal", reason=reason))
-        return entries, others, not_collected, truncated
 
     async def _collect_others(
         self, *, errors_log_since: Optional[datetime] = None,

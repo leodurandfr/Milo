@@ -1054,7 +1054,8 @@
     "refresh": "Read the logs again",
     "search": "Search the logs",
     "readFailed": "The logs could not be read.",
-    "truncated": "Journal lines before {time} are not included: the period holds more than one read returns.",
+    "truncated": "Journal lines before {time} are partly missing: the period holds more than one read returns.",
+    "truncatedWarningsWhole": "Warnings and errors are read over the whole period.",
     "empty": "No line matches these filters.",
     "count": "×{count}",
     "firstSeen": "First seen {time}",
@@ -1075,6 +1076,18 @@
       "warning": "Warning",
       "error": "Error",
       "critical": "Critical"
+    },
+    "throttling": {
+      "clear": "Power supply and temperature: no undervoltage, frequency cap or throttling since the last boot.",
+      "warning": "The Raspberry Pi reported a power or temperature limit since the last boot ({value}).",
+      "now": "now",
+      "sinceBoot": "since boot, not now",
+      "conditions": {
+        "under_voltage": "Undervoltage",
+        "frequency_capped": "Frequency capped",
+        "throttled": "Throttled",
+        "soft_temperature_limit": "Soft temperature limit"
+      }
     }
   },
   "timezone": {

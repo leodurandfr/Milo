@@ -1054,7 +1054,8 @@
     "refresh": "重新读取日志",
     "search": "搜索日志",
     "readFailed": "无法读取日志。",
-    "truncated": "{time} 之前的日志行未包含在内：该时段的内容超过一次读取的返回量。",
+    "truncated": "{time} 之前的日志行不完整：该时段的内容超过一次读取的返回量。",
+    "truncatedWarningsWhole": "警告和错误在整个时段内均已读取。",
     "empty": "没有符合这些筛选条件的行。",
     "count": "×{count}",
     "firstSeen": "首次出现于 {time}",
@@ -1075,6 +1076,18 @@
       "warning": "警告",
       "error": "错误",
       "critical": "严重"
+    },
+    "throttling": {
+      "clear": "电源与温度：自上次启动以来没有欠压、频率限制或降频。",
+      "warning": "自上次启动以来，树莓派报告了电源或温度限制（{value}）。",
+      "now": "当前",
+      "sinceBoot": "启动以来出现过，当前没有",
+      "conditions": {
+        "under_voltage": "欠压",
+        "frequency_capped": "频率受限",
+        "throttled": "降频",
+        "soft_temperature_limit": "软温度限制"
+      }
     }
   },
   "timezone": {

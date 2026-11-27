@@ -19,6 +19,7 @@ What breaks when these fail:
   wpa_supplicant — which log the SSID of every network they touch — out of a
   file destined for a public issue.
 """
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -265,8 +266,15 @@ def test_an_oversized_journal_loses_its_oldest_lines_not_its_newest(client, monk
     async def run(args, timeout=diagnostic.PROBE_TIMEOUT):
         if args[0] == "systemctl" and "list-units" in args:
             return "\n".join(f"{unit} loaded active running x" for unit in units)
+        if args[0] == "journalctl" and "-k" in args:
+            # The kernel tail is read as JSON (its priority kept).
+            return "\n".join(json.dumps({
+                "__REALTIME_TIMESTAMP": str(1762423200_000000 + n * 60_000_000), "PRIORITY": "4",
+                "SYSLOG_IDENTIFIER": "kernel[1]", "_HOSTNAME": "host",
+                "MESSAGE": f"line {n} " + "x" * 120,
+            }) for n in range(diagnostic.JOURNAL_LINES_PER_UNIT))
         if args[0] == "journalctl":
-            name = args[args.index("-u") + 1] if "-u" in args else "kernel"
+            name = args[args.index("-u") + 1]
             return "\n".join(
                 f"2026-11-06T10:{n:02d}:00+00:00 host {name}[1]: line {n} " + "x" * 120
                 for n in range(diagnostic.JOURNAL_LINES_PER_UNIT)
@@ -280,6 +288,42 @@ def test_an_oversized_journal_loses_its_oldest_lines_not_its_newest(client, monk
     assert "truncated on the satellite" not in text
     newest = diagnostic.JOURNAL_LINES_PER_UNIT - 1
     for name in [*units, "kernel"]:
-        assert f"{name}[1]: line {newest} " in text, name
-        assert f"{name}[1]: line 0 " not in text, name
+        opening = f"{name}[1]: <4>" if name == "kernel" else f"{name}[1]: "
+        assert f"{opening}line {newest} " in text, name
+        assert f"{opening}line 0 " not in text, name
     assert "older lines cut" in text
+
+
+def test_the_kernel_tail_is_the_whole_boots_warnings(client, monkeypatch):
+    """A speaker's undervoltage happens at power-up, hours before anyone reads
+    its logs, and is a cause of dropouts: the kernel tail asks for warnings and
+    above (`-p warning`) of the whole current boot (`-k`), never the units'
+    six-hour window, which held none of them on two speakers measured. Each
+    line carries its priority (`<2>`): the server files a critical line as
+    critical, which short-iso cannot say."""
+    calls = []
+    entry = {
+        "__REALTIME_TIMESTAMP": "1764219603000000", "PRIORITY": "2",
+        "SYSLOG_IDENTIFIER": "kernel", "_HOSTNAME": "milo-client",
+        "MESSAGE": "hwmon hwmon1: Undervoltage detected!",
+    }
+
+    async def run(args, timeout=diagnostic.PROBE_TIMEOUT):
+        calls.append(list(args))
+        if args[0] == "systemctl" and "list-units" in args:
+            return "milo-client.service loaded active running x"
+        if args[0] == "journalctl" and "-k" in args:
+            return json.dumps(entry) + "\n"
+        return None
+
+    monkeypatch.setattr(diagnostic, "_run", run)
+    text = client.get("/diagnostic").json()["text"]
+
+    [kernel] = [c for c in calls if c[0] == "journalctl" and "-k" in c]
+    assert kernel[kernel.index("-p") + 1] == "warning"
+    assert kernel[kernel.index("-o") + 1] == "json" and "--since" not in kernel
+    [unit] = [c for c in calls if c[0] == "journalctl" and "-u" in c]
+    assert unit[unit.index("--since") + 1] == "-6h" and "-b" in unit and "-p" not in unit
+    assert unit[unit.index("-o") + 1] == "short-iso"
+    stamp = datetime.fromtimestamp(1764219603).astimezone().isoformat(timespec="seconds")
+    assert f"--- kernel ---\n{stamp} milo-client kernel: <2>hwmon hwmon1: Undervoltage detected!" in text

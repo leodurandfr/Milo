@@ -1054,7 +1054,8 @@
     "refresh": "Protokolle erneut lesen",
     "search": "Protokolle durchsuchen",
     "readFailed": "Die Protokolle konnten nicht gelesen werden.",
-    "truncated": "Journalzeilen vor {time} sind nicht enthalten: Der Zeitraum enthält mehr, als ein Lesevorgang liefert.",
+    "truncated": "Journalzeilen vor {time} sind unvollständig: Der Zeitraum enthält mehr, als ein Lesevorgang liefert.",
+    "truncatedWarningsWhole": "Warnungen und Fehler werden über den ganzen Zeitraum gelesen.",
     "empty": "Keine Zeile entspricht diesen Filtern.",
     "count": "×{count}",
     "firstSeen": "Zuerst gesehen {time}",
@@ -1075,6 +1076,18 @@
       "warning": "Warnung",
       "error": "Fehler",
       "critical": "Kritisch"
+    },
+    "throttling": {
+      "clear": "Stromversorgung und Temperatur: keine Unterspannung, keine Taktbegrenzung und keine Drosselung seit dem letzten Start.",
+      "warning": "Der Raspberry Pi hat seit dem letzten Start eine Strom- oder Temperaturgrenze gemeldet ({value}).",
+      "now": "jetzt",
+      "sinceBoot": "seit dem Start, jetzt nicht mehr",
+      "conditions": {
+        "under_voltage": "Unterspannung",
+        "frequency_capped": "Takt begrenzt",
+        "throttled": "Gedrosselt",
+        "soft_temperature_limit": "Weiche Temperaturgrenze"
+      }
     }
   },
   "timezone": {

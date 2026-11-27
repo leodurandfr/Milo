@@ -25,10 +25,12 @@ wpa_supplicant log the SSID, and neither is in it.
 import asyncio
 import contextlib
 import grp
+import json
 import logging
 import os
 import platform
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -148,25 +150,69 @@ def _alsa_states() -> List[str]:
     return lines
 
 
-async def _journal(units: Sequence[str]) -> List[Tuple[str, List[str]]]:
-    """A tail per unit, plus the kernel ring, each oldest line first.
+# The kernel tail: warnings and above (`-p warning`) of the whole current
+# boot (`-k`, which implies `-b`), with no `--since`. An undervoltage is a
+# cause of dropouts, and it happens at power-up, when the supply is weakest —
+# hours before anyone opens the logs: under the units' six-hour window, a
+# speaker's boot-time undervoltage was in no answer at all (measured on two
+# speakers: 0 kernel lines in the last 6 h, 14-15 at warning or above in the
+# ~500 of the boot). Those fit under the 30-line cap whole. Read as JSON, so
+# each line keeps its priority: short-iso names none, and the kernel's text
+# never says its level (an undervoltage is `dev_crit`).
+KERNEL_TAIL = ("-k", "-p", "warning", "-o", "json",
+               "--output-fields=MESSAGE,PRIORITY,SYSLOG_IDENTIFIER,_HOSTNAME")
+# Each unit's tail: at most six hours, and never across a reboot (`-b` and
+# `--since` intersect).
+UNIT_WINDOW = ("-b", "--since", "-6h")
 
-    `-b` and `--since` intersect, so the window is at most six hours and never
-    crosses a reboot.
-    """
-    async def tail(args: Sequence[str]) -> List[str]:
+
+def _kernel_lines(out: str) -> List[str]:
+    """The kernel tail's JSON entries in short-iso's shape, local time, each
+    message opened by its syslog priority (`<2>hwmon hwmon1: …`), which the
+    server reads its level from
+    (backend/core/system/logs/entries.py::parse_satellite_block)."""
+    lines = []
+    for raw in out.splitlines():
+        try:
+            entry = json.loads(raw)
+            at = datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1e6).astimezone()
+        except (ValueError, KeyError, TypeError, OverflowError):
+            continue
+        message = entry.get("MESSAGE")
+        if isinstance(message, list):  # a message that is not UTF-8
+            with contextlib.suppress(TypeError, ValueError):
+                message = bytes(message).decode("utf-8", errors="replace")
+        if not isinstance(message, str) or not message.strip():
+            continue
+        priority = str(entry.get("PRIORITY", "6"))
+        head = (
+            f"{at.isoformat(timespec='seconds')} {entry.get('_HOSTNAME') or '-'} "
+            f"{entry.get('SYSLOG_IDENTIFIER') or 'kernel'}: "
+        )
+        first, *rest = message.rstrip().splitlines()
+        lines.append(f"{head}<{priority}>{first}")
+        lines += [f"    {line}" for line in rest if line.strip()]
+    return lines
+
+
+async def _journal(units: Sequence[str]) -> List[Tuple[str, List[str]]]:
+    """A tail per unit, plus the kernel's warnings, each oldest line first."""
+    async def tail(args: Sequence[str], render=None) -> List[str]:
         out = await _run([
-            "journalctl", "--no-pager", "-o", "short-iso",
-            "-n", str(JOURNAL_LINES_PER_UNIT), "-b", "--since", "-6h", *args,
+            "journalctl", "--no-pager", "-n", str(JOURNAL_LINES_PER_UNIT), *args,
         ], timeout=4.0)
         if not out:
             return []
+        lines = render(out) if render else out.splitlines()
         return [
-            _cap(line) for line in (raw.rstrip() for raw in out.splitlines())
+            _cap(line) for line in (raw.rstrip() for raw in lines)
             if line and not line.startswith("-- ")
         ]
 
-    results = await asyncio.gather(*[tail(["-u", unit]) for unit in units], tail(["-k"]))
+    results = await asyncio.gather(
+        *[tail(["-o", "short-iso", "-u", unit, *UNIT_WINDOW]) for unit in units],
+        tail(KERNEL_TAIL, _kernel_lines),
+    )
     return [(name, lines) for name, lines in zip([*units, "kernel"], results) if lines]
 
 
