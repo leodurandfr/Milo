@@ -604,7 +604,10 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   toggle; `PartOf=milo-backend.service` — *not* `BindsTo=`, which propagates stop only; the engine
   must follow a backend **restart** too) indexes
   everything under `/media/milo` and exposes a localhost **Subsonic API** (`127.0.0.1:4533`). A
-  mount change triggers an explicit rescan. Scan state is **pushed, not polled**: one backend
+  mount change triggers an explicit rescan, and a 6-hourly one (`shares.py::_backstop_scans`)
+  catches a trigger that was lost; Navidrome schedules none of its own (`Scanner.Schedule = "0"`).
+  Every scan names the libraries whose storage space is mounted (`startScan target=<id>:`), so a
+  storage space that is away keeps its library without being walked. Scan state is **pushed, not polled**: one backend
   watcher (`shares.py::_watch_scan`) observes Navidrome for the whole appliance and broadcasts it
   with the storage list on `source/storages_changed`, surfaced as a "building library…" state with
   a live indexed-track count. That count is the storage space's **own** (`totalSongs` from

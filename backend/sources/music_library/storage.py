@@ -59,6 +59,11 @@ StorageChangedHook = Callable[[], Awaitable[None]]
 # "no music in this folder" while its scan had not even started.
 ScanningHook = Callable[[], Awaitable[None]]
 
+# The Navidrome library ids a scan names: those of the storage spaces mounted
+# now, so an unplugged key keeps its index without being walked. None when
+# Navidrome could not be asked; an empty list when nothing is mounted.
+ScanTargetsHook = Callable[[], Awaitable[Optional[List[int]]]]
+
 # Filesystems worth mounting — mirrors milo-mount's allowlist. The helper is the
 # real security boundary and re-validates independently; this is only a fast
 # pre-filter so we don't shell out for a partition Navidrome couldn't read anyway.
@@ -76,8 +81,8 @@ _HELPER_TIMEOUT_S = 50.0
 
 # Cadence and ceiling for waiting out a scan that was already running when a
 # mount landed (see _scan_when_idle). Past the ceiling the mount is left to
-# Navidrome's own periodic pass, which provisioning/navidrome.sh sets to **6h**
-# — so giving up early is not the cheap "within the hour" this used to claim.
+# the periodic backstop (shares.py, every **6h**) — so giving up early is not the
+# cheap "within the hour" this used to claim.
 #
 # The ceiling has to outlast a first index, because that is the scan a second
 # mount most often lands behind. Measured on the unit 2026-09-02: indexing a
@@ -161,6 +166,7 @@ class StorageManager:
         navidrome_provider: NavidromeProvider,
         on_storage_changed: StorageChangedHook,
         on_scanning: ScanningHook,
+        scan_targets: ScanTargetsHook,
     ) -> None:
         self.logger = logger
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -171,6 +177,7 @@ class StorageManager:
         self._navidrome_provider = navidrome_provider
         self._on_storage_changed = on_storage_changed
         self._on_scanning = on_scanning
+        self._scan_targets = scan_targets
         # Serializes mount/unmount so concurrent hotplug events can't race on the
         # mountpoint table or the helpers.
         self._lock = asyncio.Lock()
@@ -653,8 +660,8 @@ class StorageManager:
         """Wait out the running scan, then run the one the mount is owed.
 
         Tracked on ``self`` and cancelled in :meth:`cleanup`. Giving up at the
-        ceiling is not a lost catalog — Navidrome's periodic pass sees the mount
-        regardless — but that pass runs every 6h, so this decides whether the new
+        ceiling is not a lost catalog — the periodic backstop (shares.py) scans
+        the mount regardless — but that pass runs every 6h, so this decides whether the new
         storage space appears in seconds or somewhere in the next six hours.
         """
         waited = 0.0
@@ -685,7 +692,15 @@ class StorageManager:
         ``note_scan_started``, outside ``_scan_lock`` and the deferred scan:
         these are the two announcers."""
         try:
-            outcome = await client.start_scan()
+            library_ids = await self._scan_targets()
+            if library_ids is None:
+                # The library list went unanswered, so the scan would have too.
+                self.logger.debug("Navidrome not answering yet; no scan requested")
+                return
+            if not library_ids:
+                self.logger.debug("No storage space mounted; nothing to scan")
+                return
+            outcome = await client.start_scan(library_ids)
         except Exception as exc:
             self.logger.warning("Navidrome scan trigger failed: %s", exc)
             return
@@ -694,6 +709,7 @@ class StorageManager:
         elif outcome is ScanRequest.REFUSED:
             self.logger.warning("Navidrome refused the scan request")
         elif outcome is ScanRequest.UNAVAILABLE:
-            # Its own periodic pass covers this once it is up; nothing is lost
-            # by not having asked, and this fires on every boot.
+            # Navidrome coming back asks again (the scan watcher's regained
+            # edge); nothing is lost by not having asked, and this fires on
+            # every boot.
             self.logger.debug("Navidrome not answering yet; no scan requested")

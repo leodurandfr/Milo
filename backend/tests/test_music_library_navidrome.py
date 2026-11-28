@@ -509,6 +509,7 @@ def source(nav_client):
     src.shares.forget_playlist = AsyncMock()
     src.shares.record_playlist_storage = AsyncMock()
     src.shares.note_scan_started = AsyncMock()
+    src.shares.scan_targets = AsyncMock(return_value=[2])
     # Milō's own artist-photo resolver, which the cover route falls through to
     # whenever Navidrome has no art. Silent by default so the album cases below
     # read as they did before it existed (it only ever claims `ar-` ids).

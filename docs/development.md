@@ -701,8 +701,8 @@ standing in for the podcast catalogue and a mount layer underneath.**
   poll Navidrome answers writes its database (last access, player last-seen,
   each at most once a minute). Measured on the SD card with the unit at rest:
   336-352 KiB per 5 min at the old 15 s (about 95-99 MiB a day), 128 KiB per 5 min
-  at 5 min (about 36 MiB a day, 2026-11-22). So only Navidrome's own 6-hourly scan
-  is left to it: every scan Milō asks for is announced the moment Navidrome
+  at 5 min (about 36 MiB a day, 2026-11-22). So only a scan Milō did not ask for
+  (one run on the unit by hand) is left to it: every scan Milō asks for is announced the moment Navidrome
   accepts it (`StorageManager`'s scanning hook, which also keeps `scanning` up
   while a mount's scan waits behind a running one), and every Subsonic call
   Navidrome does not answer is reported by the client (`on_unanswered` →

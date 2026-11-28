@@ -881,13 +881,21 @@ async def trigger_scan(
 
     Cheap on an already-indexed catalog: measured at 401 ms across 12 488 tracks
     on two storage spaces. Only *new* files cost real time (the first pass over a
-    10 000-track iPod took 18 minutes), which is why plugging a key in triggers
-    an ordinary global scan rather than trying to scope one — Navidrome exposes
-    no per-library scan, and there would be nothing to save.
+    10 000-track iPod took 18 minutes). Scoped to the storage spaces mounted now
+    (``shares.scan_targets``), like every scan Milō asks for: an unplugged key
+    keeps its library and is not walked. With nothing mounted there is nothing to
+    refresh, and the answer is a success that started no scan.
     """
     async with _catalog_errors("Error starting scan", source):
         client = await _require_client(source)
-        outcome = await client.start_scan()
+        library_ids = await source.shares.scan_targets()
+        if library_ids is None:
+            logger.info("Navidrome is not answering yet; scan not requested")
+            raise HTTPException(status_code=503, detail="Music library catalog not ready")
+        if not library_ids:
+            logger.info("No storage space mounted; nothing to scan")
+            return {"status": "success"}
+        outcome = await client.start_scan(library_ids)
         if outcome is ScanRequest.UNAVAILABLE:
             # The same 503 _require_client serves, for the same reason one step
             # later: Navidrome restarts on every update and migrates its database

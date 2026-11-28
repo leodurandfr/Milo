@@ -54,10 +54,22 @@ class ShareLoginNeedsPassword(Exception):
 _SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
 _SHARE_REMOUNT_PLATEAU_S = 300
 
-# Scan-watcher cadence. Navidrome exposes no scan event of any kind and runs its
-# own 6-hourly schedule, so a scan starts that Milō never asked for — polling is
-# the only way to know, and the alternative (every browser polling for itself)
-# is what this replaces.
+# The periodic rescan, the backstop behind every scan Milō asks for on an event
+# (a mount, the source opening, Navidrome or a share coming back): it catches a
+# mount whose own trigger was lost, whatever the reason. Milō's and not
+# Navidrome's (`Scanner.Schedule` is off in provisioning/navidrome.sh), because
+# Navidrome's own pass scans every library — the unplugged key's included, which
+# it answered with an ERROR per pass — while this one names the mounted ones.
+# Deliberately NOT the freshness mechanism: the source asks for a scan when the
+# library is opened, the moment freshness matters and the NAS is about to be
+# woken by playback anyway, which is what lets this run every 6h rather than
+# hourly — a scan over a sleeping NAS spins its disks up for nothing.
+_BACKSTOP_SCAN_S = 6 * 3600.0
+
+# Scan-watcher cadence. Navidrome exposes no scan event of any kind, so a scan
+# Milō did not announce (one started on the unit by hand) is only known by
+# polling, and the alternative (every browser polling for itself) is what this
+# replaces.
 #
 # Every poll Navidrome *answers* is a write to its database: the authenticated
 # getScanStatus updates the account's last access and the player's last-seen,
@@ -67,8 +79,8 @@ _SHARE_REMOUNT_PLATEAU_S = 300
 # Navidrome wrote 336-352 KiB per 5 min at the 15 s probe (about 95-99 MiB a
 # day) and writes 128 KiB per 5 min at the 5 min one (about 36 MiB a day,
 # measured 2026-11-22). So the idle
-# cadence sits well past that one-minute limiter, and only Navidrome's own
-# 6-hourly scan is left to it: every scan Milō asks for is announced the moment
+# cadence sits well past that one-minute limiter, and only a scan Milō did not
+# ask for is left to it: every scan Milō asks for is announced the moment
 # Navidrome accepts it, through note_scan_started (one asked through
 # StorageManager.request_scan — a mount or a replug, the source opening,
 # Navidrome or a share coming back — by its scanning hook, a press of Refresh by
@@ -141,7 +153,8 @@ class NetworkShareService:
         self._data = MusicLibraryDataService()
         self._libraries = NavidromeLibraryService(on_storages_changed)
         self._storage = StorageManager(
-            navidrome_provider, self._sync_libraries, self.note_scan_started
+            navidrome_provider, self._sync_libraries, self.note_scan_started,
+            self.scan_targets,
         )
         self._navidrome_provider = navidrome_provider
         # The merged-album cache lives with the catalog, not here; a share change
@@ -228,6 +241,7 @@ class NetworkShareService:
         self._remount_soon(boot=True)
         self._bg.spawn(self._watch_scan(), label="scan-watcher")
         self._bg.spawn(self._watch_share_liveness(), label="share-liveness")
+        self._bg.spawn(self._backstop_scans(), label="backstop-scan")
 
     async def cleanup(self) -> None:
         """Stop the USB monitor thread and drain the library reconciler.
@@ -500,6 +514,33 @@ class NetworkShareService:
         """Whether a scan is running, and whether Navidrome answers, as polled."""
         return dict(self._scan)
 
+    async def scan_targets(self) -> Optional[List[int]]:
+        """The library ids a scan names: those of the storage spaces mounted now.
+
+        ``mounted`` as ``storages()`` reports it, so a NAS the liveness probe
+        found dead is left out as well as an unplugged key: a scan over a dead
+        CIFS mount sits in the kernel for minutes. None when Navidrome could not
+        be asked, ``[]`` when nothing is mounted — both mean no scan.
+        """
+        entries = await self.storages()
+        return await self._libraries.mounted_library_ids(
+            {entry["mountpoint"] for entry in entries if entry["mounted"]}
+        )
+
+    async def _backstop_scans(self) -> None:
+        """Rescan the mounted storage spaces every ``_BACKSTOP_SCAN_S``.
+
+        Through ``request_scan``, so a scan already running is waited out rather
+        than fired into, and a Navidrome that is down (the dock has it off) is
+        one debug line, not an error.
+        """
+        while True:
+            await asyncio.sleep(_BACKSTOP_SCAN_S)
+            try:
+                await self.request_scan()
+            except Exception as exc:
+                self._logger.error("Periodic Navidrome rescan failed: %s", exc)
+
     async def request_scan(self) -> None:
         """Ask for an incremental rescan, deferring if one is already running.
 
@@ -589,8 +630,8 @@ class NetworkShareService:
 
         Replaces the per-browser polling the settings screen used to do: one
         watcher for the whole appliance, and every client learns a scan started
-        or finished — including the periodic one Navidrome schedules itself, which
-        no client could have known to poll for.
+        or finished — including one started on the unit by hand, which no client
+        could have known to poll for.
 
         A finished scan is a catalog change, so the merged-album cache is dropped
         and the same push carries the storage spaces' new counts.
@@ -675,7 +716,7 @@ class NetworkShareService:
             # The scan owed from while it was down. Every path that would have
             # asked — the source starting, a mount landing, the library view
             # opening — was answered "not answering yet" and dropped it, and the
-            # next one after that is Navidrome's own 6-hourly pass.
+            # next one after that is the 6-hourly backstop.
             await self.request_scan()
         return scanning
 

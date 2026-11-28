@@ -176,6 +176,7 @@ class TestScanRoutes:
         source.get_navidrome_client = AsyncMock(return_value=client)
         source.invalidate_album_cache = MagicMock()
         source.shares.note_scan_started = AsyncMock()
+        source.shares.scan_targets = AsyncMock(return_value=[2, 6])
 
         app = FastAPI()
         setup_music_library_routes(lambda: source)
@@ -219,6 +220,39 @@ class TestScanRoutes:
         assert r.json()["status"] == "success"
         source.shares.note_scan_started.assert_awaited_once()
 
+    def test_the_scan_names_the_mounted_libraries(self, harness):
+        """A press of Refresh scanned every library, the unplugged key's too, and
+        Navidrome answered that one with an ERROR line on the log page."""
+        api, source, client = harness
+        client.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
+
+        api.post("/api/music-library/scan")
+
+        client.start_scan.assert_awaited_once_with([2, 6])
+
+    def test_nothing_mounted_starts_no_scan(self, harness):
+        """An empty target list is not "no library": Navidrome reads a startScan
+        without targets as a scan of every library."""
+        api, source, client = harness
+        source.shares.scan_targets = AsyncMock(return_value=[])
+        client.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
+
+        r = api.post("/api/music-library/scan")
+
+        assert r.status_code == 200
+        client.start_scan.assert_not_awaited()
+        source.shares.note_scan_started.assert_not_awaited()
+
+    def test_a_library_list_unanswered_is_a_catalog_not_ready(self, harness):
+        api, source, client = harness
+        source.shares.scan_targets = AsyncMock(return_value=None)
+        client.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
+
+        r = api.post("/api/music-library/scan")
+
+        assert r.status_code == 503
+        client.start_scan.assert_not_awaited()
+
 
 class TestShareRequestPath:
     def test_allows_spaces_in_path(self):
@@ -246,12 +280,12 @@ class TestMountedShareIds:
             "22 1 0:5 / /proc rw - proc proc rw\n"
             "1 0 179:2 / / rw - ext4 /dev/root rw\n"
         )
-        mgr = StorageManager(AsyncMock(return_value=None), AsyncMock(), AsyncMock())
+        mgr = StorageManager(AsyncMock(return_value=None), AsyncMock(), AsyncMock(), AsyncMock(return_value=[2]))
         with patch("builtins.open", mock_open(read_data=mountinfo)):
             ids = mgr.get_mounted_share_ids()
         assert ids == {"USB-KEY", "music-abc123", "photos-def456", "My Key"}
 
     def test_fail_open_on_error(self):
-        mgr = StorageManager(AsyncMock(return_value=None), AsyncMock(), AsyncMock())
+        mgr = StorageManager(AsyncMock(return_value=None), AsyncMock(), AsyncMock(), AsyncMock(return_value=[2]))
         with patch("builtins.open", side_effect=OSError("nope")):
             assert mgr.get_mounted_share_ids() == set()

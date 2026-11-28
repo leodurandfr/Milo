@@ -71,7 +71,7 @@ def navidrome():
 
 @pytest.fixture
 def manager(navidrome):
-    return StorageManager(_navidrome_provider(navidrome), AsyncMock(), AsyncMock())
+    return StorageManager(_navidrome_provider(navidrome), AsyncMock(), AsyncMock(), AsyncMock(return_value=[2]))
 
 
 # === classification ===============================================================
@@ -274,7 +274,7 @@ def test_a_mute_host_never_gets_an_empty_mountpoint(tmp_path, fstype):
     """Every remount pass against an offline NAS goes through milo-mount, and
     the plateau retries it every 5 min with no end. Navidrome reads a present but
     empty /media/milo/<id> as a library whose every track is missing, and nothing
-    stops its 6-hourly schedule or the source's open-rescan from landing while a
+    stops the 6-hourly backstop or the source's open-rescan from landing while a
     mount attempt is in flight — so the mountpoint must not exist until the host
     answers. Fails when milo-mount creates it before asking, as it did for the
     30-40 s of two CIFS timeouts. Consumer: SharesService's remount task."""
@@ -323,7 +323,7 @@ async def test_scan_skipped_when_navidrome_unavailable():
     mount must still complete rather than raise. Nothing else will notice it —
     no inotify event reports a mount — so the scheduled rescan is what catches
     up, and the mount itself must not fail over a catalog that isn't up yet."""
-    mgr = StorageManager(_navidrome_provider(None), AsyncMock(), AsyncMock())
+    mgr = StorageManager(_navidrome_provider(None), AsyncMock(), AsyncMock(), AsyncMock(return_value=[2]))
     await mgr.request_scan()  # must not raise
 
 
@@ -546,7 +546,7 @@ async def test_the_deferred_scan_runs_once_the_scanner_goes_idle(manager, navidr
         await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
                                    "host": "nas.local", "path": "music"})
         await manager._deferred_scan
-    navidrome.start_scan.assert_awaited_once_with()
+    navidrome.start_scan.assert_awaited_once_with([2])
 
 
 async def test_two_mounts_racing_one_scan_share_a_single_waiter(manager, navidrome):
@@ -564,7 +564,7 @@ async def test_two_mounts_racing_one_scan_share_a_single_waiter(manager, navidro
         await manager.mount_share({"id": "nfs-abcd1234", "type": "nfs",
                                    "host": "nas.local", "path": "export"})
         await manager._deferred_scan
-    navidrome.start_scan.assert_awaited_once_with()
+    navidrome.start_scan.assert_awaited_once_with([2])
 
 
 async def test_an_idle_scanner_is_scanned_straight_away(manager, navidrome):
@@ -573,7 +573,7 @@ async def test_an_idle_scanner_is_scanned_straight_away(manager, navidrome):
                return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")):
         await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
                                    "host": "nas.local", "path": "music"})
-    navidrome.start_scan.assert_awaited_once_with()
+    navidrome.start_scan.assert_awaited_once_with([2])
     assert manager._deferred_scan is None
 
 
@@ -649,12 +649,12 @@ def _recording_manager(navidrome, events):
     async def scanning():
         events.append("scanning")
 
-    async def start_scan():
+    async def start_scan(library_ids):
         events.append("scan-requested")
         return navidrome.start_scan.return_value
 
     navidrome.start_scan = AsyncMock(side_effect=start_scan, return_value=ScanRequest.STARTED)
-    return StorageManager(_navidrome_provider(navidrome), storage_changed, scanning)
+    return StorageManager(_navidrome_provider(navidrome), storage_changed, scanning, AsyncMock(return_value=[2]))
 
 
 async def test_a_mounted_share_announces_its_scan_after_asking_for_it(navidrome):
@@ -701,3 +701,38 @@ async def test_a_scan_owed_behind_a_running_one_is_announced_and_pending(navidro
 
     assert events == ["scanning", "scan-requested", "scanning"]
     assert manager.scan_pending() is False
+
+
+# Every scan names the libraries mounted now (shares.scan_targets). A scan of
+# every library also walked the unplugged key's, and Navidrome logged an ERROR
+# for it on every pass — four a day from its own schedule, and one per backend
+# restart and library opening.
+
+async def test_a_scan_names_the_libraries_the_hook_returns(navidrome):
+    navidrome.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
+    manager = StorageManager(
+        _navidrome_provider(navidrome), AsyncMock(), AsyncMock(),
+        AsyncMock(return_value=[2, 6]),
+    )
+
+    await manager.request_scan()
+
+    navidrome.start_scan.assert_awaited_once_with([2, 6])
+
+
+@pytest.mark.parametrize("targets", [[], None])
+async def test_no_mounted_library_asks_for_no_scan(navidrome, targets):
+    """``[]``: nothing is mounted, and a startScan without targets would be a
+    scan of every library. ``None``: Navidrome did not answer the library list,
+    so it would not have answered the scan either. Neither is announced."""
+    navidrome.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
+    scanning = AsyncMock()
+    manager = StorageManager(
+        _navidrome_provider(navidrome), AsyncMock(), scanning,
+        AsyncMock(return_value=targets),
+    )
+
+    await manager.request_scan()
+
+    navidrome.start_scan.assert_not_awaited()
+    scanning.assert_not_awaited()

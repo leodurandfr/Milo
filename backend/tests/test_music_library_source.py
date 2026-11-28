@@ -1593,7 +1593,7 @@ class TestRescanOnOpen:
     It is the only moment Milō can infer that freshness matters: music copied
     straight onto a NAS raises no event this appliance can observe — inotify
     crosses neither a network mount nor a mount itself — so without this the
-    catalog moves only on the 6-hourly scheduled pass, which is deliberately
+    catalog moves only on the 6-hourly backstop scan, which is deliberately
     slow so a sleeping NAS is not woken 24 times a day.
     """
 

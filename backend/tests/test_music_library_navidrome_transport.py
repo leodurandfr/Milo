@@ -354,7 +354,7 @@ class TestWhatTheSentinelDecides:
         then waits for the hourly pass with nothing said."""
         attach(client, aiohttp.ClientOSError(111, "Connection refused"))
 
-        assert await client.start_scan() is ScanRequest.UNAVAILABLE
+        assert await client.start_scan([2]) is ScanRequest.UNAVAILABLE
 
     async def test_a_sidecar_that_is_only_booting_has_refused_nothing(self, client):
         """The distinction the two callers act on. Collapsed into one falsy
@@ -363,14 +363,32 @@ class TestWhatTheSentinelDecides:
         "Navidrome refused the scan request" over a working appliance."""
         attach(client, _Response(500, body="boom"))
 
-        assert await client.start_scan() is ScanRequest.REFUSED
+        assert await client.start_scan([2]) is ScanRequest.REFUSED
 
     async def test_a_scan_that_was_accepted_is_incremental(self, client):
         session = attach(client, _Response(json_body=ok({"scanStatus": {"scanning": True}})))
 
-        assert await client.start_scan() is ScanRequest.STARTED
+        assert await client.start_scan([2]) is ScanRequest.STARTED
         assert session.calls[0][0] == f"{BASE}/rest/startScan"
         assert session.params(0)["fullScan"] == ["false"]
+
+    async def test_a_scan_names_each_library_by_its_root(self, client):
+        """`target=<id>:` is a whole library in Navidrome 0.64's grammar
+        (libraryID:folderPath, an empty path its root). Sent without targets, the
+        scan walks every library, an unplugged key's included, and logs an ERROR
+        for it each time."""
+        session = attach(client, _Response(json_body=ok({"scanStatus": {"scanning": True}})))
+
+        await client.start_scan([2, 6])
+
+        assert session.params(0)["target"] == ["2:", "6:"]
+
+    async def test_no_library_is_refused_before_anything_is_sent(self, client):
+        session = attach(client, _Response(json_body=ok({})))
+
+        with pytest.raises(ValueError):
+            await client.start_scan([])
+        assert session.calls == []
 
     async def test_scan_status_is_unknown_rather_than_idle_when_unreachable(self, client):
         attach(client, aiohttp.ClientOSError(111, "Connection refused"))

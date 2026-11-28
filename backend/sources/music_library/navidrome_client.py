@@ -31,7 +31,7 @@ import secrets
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urlencode
 
 import aiohttp
@@ -382,8 +382,8 @@ class NavidromeClient:
 
     # === Health / scan ===
 
-    async def start_scan(self) -> ScanRequest:
-        """Trigger a library scan, saying which of the three things happened.
+    async def start_scan(self, library_ids: Sequence[int]) -> ScanRequest:
+        """Scan the libraries named, saying which of the three things happened.
 
         Always the incremental one. It indexes what appeared, marks what it can
         no longer find and un-marks what came back — every refresh Milo needs.
@@ -391,11 +391,20 @@ class NavidromeClient:
         for; ``navidrome scan --full`` on the unit is the escape hatch if a tag
         edit ever has to be picked up without its file's mtime moving.
 
-        A library whose mount has gone is **not** a refusal: Navidrome scans the
-        others, answers ``ok``, and reports the failure as a field of its scan
-        status. Only an API-level rejection is ``REFUSED``.
+        Each id goes as a ``target=<id>:`` (the library's root), so Navidrome
+        scans those libraries and no other — an unplugged key keeps its library
+        and is never walked. A scan of every library read the absent one too,
+        and Navidrome answered it with an ERROR line per scan in the log page,
+        for a storage space that is simply away. Callers pass the mounted ones
+        (``NavidromeLibraryService.mounted_library_ids``) and never call with
+        none: an empty target list would make Navidrome scan everything.
         """
-        response = await self._make_request("startScan", {"fullScan": "false"})
+        if not library_ids:
+            raise ValueError("start_scan needs at least one library id")
+        response = await self._make_request(
+            "startScan",
+            {"fullScan": "false", "target": [f"{library_id}:" for library_id in library_ids]},
+        )
         if response is None:
             return ScanRequest.REFUSED
         if response.get("_network_error"):
@@ -762,10 +771,8 @@ class NavidromeClient:
 
         A rescan is when an item can gain or lose its art, which is the one event
         that makes the memo wrong — art now comes only from files on disk, and a
-        scan is what notices those. The gap that leaves is Navidrome's own
-        periodic scan, which Milō is not told about: art dropped beside the music
-        and picked up there shows after the next rescan from the UI, or a
-        restart.
+        scan is what notices those. Called with every catalog cache the source
+        drops (``invalidate_album_cache``), a scan the watcher saw end included.
         """
         self._cover_verdict.clear()
 

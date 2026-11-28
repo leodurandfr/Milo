@@ -40,7 +40,7 @@ must never fail because the catalog engine was busy.
 import asyncio
 import contextlib
 import logging
-from typing import Any, Awaitable, Callable, Dict, Optional, Set
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
 from backend.shared.background import BackgroundTaskSet
@@ -133,6 +133,28 @@ class NavidromeLibraryService:
             for lib in libraries
             if lib.get("path")
         }
+
+    async def mounted_library_ids(self, mounted: Set[str]) -> Optional[List[int]]:
+        """The ids of the libraries rooted at a mounted storage space.
+
+        What every scan names (``NavidromeClient.start_scan``): a library whose
+        storage space is away keeps its index, and a scan has nothing to walk
+        there. Read from Navidrome at the moment of the scan rather than from the
+        last reconcile, which a boot or a Navidrome restart can still be retrying
+        when the first scan is asked for. ``None`` when Navidrome could not be
+        asked — the scan it was for could not have run either.
+        """
+        async with self._lock:
+            admin = await self._get_admin()
+            if admin is None:
+                return None
+            libraries = await admin.list_libraries()
+        if libraries is None:
+            return None
+        return sorted(
+            lib["id"] for lib in libraries
+            if lib.get("path") in mounted and lib.get("id") is not None
+        )
 
     # =========================================================================
     # RECONCILE

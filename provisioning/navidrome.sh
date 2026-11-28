@@ -59,13 +59,8 @@ DataFolder = "/var/lib/milo/navidrome"
 Address = "127.0.0.1"
 Port = 4533
 
-# The folder watcher is left at its default (on, Scanner.WatcherWait = "5s";
-# setting that to 0 is what would disable it). Kept because it costs nothing and
-# does catch a local edit, but it is weaker than it looks and nothing here may
-# rely on it: inotify reports neither writes on the far side of a CIFS/NFS mount
-# NOR a mount landing on a watched directory. Everything under /media/milo
-# arrives by mount, so the watcher never announces a storage space appearing.
-# Scans are driven from the backend instead (see [Scanner] below).
+# The folder watcher is off (Scanner.WatcherWait, under [Scanner] below).
+# Scans are driven from the backend instead.
 
 # Do NOT turn bundled .m3u/.nsp files into playlists. Navidrome defaults this ON,
 # which silently mints a playlist per sidecar file found in the library — and
@@ -151,25 +146,27 @@ LogLevel = "info"
 # storage is ready, which is the backend, not Navidrome.
 ScanOnStartup = false
 
-# Periodic incremental rescan — the backstop, and the reason ScanOnStartup can be
-# turned off safely. It catches a mount whose own trigger was lost, whatever the
-# reason, so no failure of the paths above can outlive it.
-#
-# Deliberately NOT the freshness mechanism: the source asks for a scan when the
-# user opens the library (source.py::_do_start), which is both the moment
-# freshness matters and a moment the NAS is about to be woken by playback anyway.
-# That is what lets this run every 6h instead of hourly — a scan over a sleeping
-# NAS spins its disks up for nothing, and doing that 24 times a day to catch
-# music the user is not currently looking for is a poor trade.
-#
-# mtime-based: measured at 7s over 2419 tracks on a CIFS share with nothing
-# changed. An unmounted storage space has no directory at all (milo-umount
-# rmdir's the mountpoint), and Navidrome skips a library whose path does not
-# exist without touching its tracks — so a pass over a sleeping NAS is harmless
-# beyond the spin-up. That asymmetry between "directory empty" and "directory
-# absent" is what makes this safe; do not paper a mountpoint over with a
-# placeholder file.
-Schedule = "6h"
+# No periodic scan of Navidrome's own. It scans every library, and a library
+# Milō keeps while its storage space is away (an unplugged key keeps its index,
+# libraries.py) is one it cannot open: each pass answered it with an ERROR
+# ("Error getting fs for library", "Error executing periodic scan") on the log
+# page, four times a day, for a key that is simply unplugged. The backstop this
+# used to be is the backend's now (shares.py::_backstop_scans, every 6h), and
+# every scan the backend asks for names the mounted libraries alone
+# (startScan target=<id>:), so an absent storage space is never walked.
+# "0" is how the pinned binary spells off: its boot log says "Periodic scan is
+# DISABLED".
+Schedule = "0"
+
+# No folder watcher. It could see nothing here: every storage space is mounted
+# read-only (milo-mount), so nothing on the unit writes into one, and inotify
+# reports neither writes on the far side of a CIFS/NFS mount NOR a mount landing
+# on a watched directory, so it never announces a storage space appearing. What
+# it did do is open every library at each Navidrome start, and answer the one
+# whose storage space is away with an ERROR ("Watcher error … no such file or
+# directory") on the log page, once per backend restart. "0" disables it in the
+# pinned binary ("Folder watcher is DISABLED", at debug).
+WatcherWait = "0"
 
 # Navidrome's own default, and the one it documents for removable and network
 # storage: a file that disappeared is *marked* missing, never deleted. Marking is

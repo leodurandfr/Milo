@@ -275,6 +275,43 @@ class TestPerStorageCounts:
         assert await service.stats() == {}
 
 
+class TestScanTargets:
+    """A scan names the libraries whose storage space is mounted, and no other.
+
+    A key unplugged keeps its library (its index survives the unplug); scanned,
+    Navidrome answered it with an ERROR line per pass on the log page.
+    """
+
+    @pytest.fixture
+    def admin(self):
+        client = Mock()
+        client.list_libraries = AsyncMock(return_value=[
+            {"id": 1, "name": "Default", "path": "/var/lib/milo/navidrome/default-library"},
+            {"id": 2, "name": "NAS-Leo", "path": NAS},
+            {"id": 6, "name": "iPod", "path": KEY},
+        ])
+        return client
+
+    @pytest.fixture
+    def service(self, admin):
+        svc = NavidromeLibraryService(AsyncMock())
+        svc._get_admin = AsyncMock(return_value=admin)
+        return svc
+
+    async def test_only_a_mounted_storage_space_is_scanned(self, service):
+        assert await service.mounted_library_ids({NAS}) == [2]
+
+    async def test_nothing_mounted_is_no_library_rather_than_every_library(self, service):
+        """The default library (an empty directory, never a mount) is not a
+        target either: nothing is there to scan."""
+        assert await service.mounted_library_ids(set()) == []
+
+    async def test_a_library_list_unanswered_is_not_an_empty_one(self, service, admin):
+        admin.list_libraries = AsyncMock(return_value=None)
+
+        assert await service.mounted_library_ids({NAS}) is None
+
+
 class TestTheStorageButtonCountsAsTheGrid:
     """A storage button's album count is the album grid's, multi-disc sets merged.
 
