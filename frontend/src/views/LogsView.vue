@@ -46,7 +46,7 @@
       <Dropdown v-model="level" :options="levelOptions" size="small" />
       <Dropdown v-model="service" :options="serviceOptions" size="small" />
       <Dropdown v-model="since" :options="periodOptions" size="small" />
-      <InputText v-model="query" class="logs__search" icon="search" :maxlength="200"
+      <InputText v-model="query" class="logs__search" icon="search" size="small" :maxlength="200"
         :placeholder="t('logs.search')" />
     </div>
 

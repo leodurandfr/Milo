@@ -1,9 +1,10 @@
 <!-- frontend/src/components/ui/InputText.vue -->
 <template>
   <div class="input-wrapper">
-    <div v-press="type !== 'password'" class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
+    <div v-press="type !== 'password'" class="input-container"
+      :class="[`input-container--${size}`, { 'keyboard-active': isKeyboardActiveForThis }]" @click="handleContainerClick">
       <input ref="inputRef" :type="inputType" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
-        :maxlength="maxlength" class="heading-4" @input="handleInput" @focus="handleFocus"
+        :maxlength="maxlength" :class="size === 'small' ? 'heading-5' : 'heading-4'" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" @keydown.enter="handleSubmit" />
       <!-- A password can always be read back: inside the container, so a tap
            on it keeps the virtual keyboard open, and stopped there, so it
@@ -14,7 +15,7 @@
         :icon="revealed ? 'eyeSlash' : 'eye'" :disabled="disabled"
         :aria-label="revealed ? t('common.hidePassword') : t('common.showPassword')"
         @mousedown.prevent @click.stop="revealed = !revealed" />
-      <SvgIcon v-else-if="icon" :name="icon" :size="iconSize" class="input-icon" />
+      <SvgIcon v-else-if="icon" :name="icon" :size="shownIconSize" class="input-icon" />
     </div>
   </div>
 </template>
@@ -51,9 +52,17 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  // The icon follows the size (24, 20 small) unless one is given.
   iconSize: {
     type: Number,
-    default: 24
+    default: null
+  },
+  // Dropdown's sizes, so a field beside a small dropdown (the logs page's
+  // filters) is the same height, corner, inset and type.
+  size: {
+    type: String,
+    default: 'medium',
+    validator: (value) => ['medium', 'small'].includes(value)
   },
   // What the value may be completed into, as it is typed (a search's
   // completions): on the virtual keyboard they are drawn above its display,
@@ -79,6 +88,7 @@ const isKeyboardActiveForThis = ref(false);
 const isPassword = computed(() => props.type === 'password');
 const revealed = ref(false);
 const inputType = computed(() => (isPassword.value && revealed.value ? 'text' : props.type));
+const shownIconSize = computed(() => props.iconSize ?? (props.size === 'small' ? 20 : 24));
 
 function handleInput(event) {
   emit('update:modelValue', event.target.value);
@@ -178,6 +188,12 @@ onUnmounted(() => {
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast), var(--transition-press);
 }
 
+.input-container--small {
+  height: 36px;
+  padding: 0 var(--space-02) 0 var(--space-03);
+  border-radius: var(--radius-03);
+}
+
 .input-container:has(input:disabled) {
   opacity: var(--opacity-disabled);
   cursor: not-allowed;
@@ -229,6 +245,10 @@ input:disabled {
   .input-container {
     height: 38px;
     border-radius: var(--radius-03);
+  }
+
+  .input-container--small {
+    height: 34px;
   }
 }
 </style>
